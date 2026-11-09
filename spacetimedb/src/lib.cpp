@@ -74,7 +74,7 @@ FIELD_Unique(player_session, name)
 // kind: 0 = Chest Monster, 1 = Ghost Fish.
 // spawn_* is the authored point and is never overwritten by movement updates.
 // The module writes position, rotation, and the attack flags. No client owns a row.
-// loop_attack is true only while a player is inside that kind's attack range.
+// loop_attack is true only while a player is inside attack_range.
 struct Monster
 {
     uint64_t id;
@@ -85,7 +85,12 @@ struct Monster
     DbRotator rotation;
     bool is_attacking;
     bool loop_attack;
+    // Server-owned hit points. Clients render this value. 0 means dead.
+    float health;
     Timestamp updated_at;
+    // Horizontal detection and attack reach in centimeters. Zero uses the kind seed default.
+    float detection_range;
+    float attack_range;
 };
 SPACETIMEDB_STRUCT(
     Monster,
@@ -97,9 +102,15 @@ SPACETIMEDB_STRUCT(
     rotation,
     is_attacking,
     loop_attack,
-    updated_at)
+    health,
+    updated_at,
+    detection_range,
+    attack_range)
 SPACETIMEDB_TABLE(Monster, monster, Public)
 FIELD_PrimaryKeyAutoInc(monster, id)
+FIELD_Default(monster, health, 100.f)
+FIELD_Default(monster, detection_range, 0.f)
+FIELD_Default(monster, attack_range, 0.f)
 
 // Private. One interval row keeps monster_tick running. Clients never subscribe to it.
 struct MonsterTickTimer
@@ -124,11 +135,25 @@ SPACETIMEDB_TABLE(PlayerRespawnTimer, player_respawn_timer, Private)
 FIELD_PrimaryKeyAutoInc(player_respawn_timer, scheduled_id)
 SPACETIMEDB_SCHEDULE(player_respawn_timer, 1, respawn_player)
 
+// Private. One shot, one second after a monster's health reaches 0.
+struct MonsterRespawnTimer
+{
+    uint64_t scheduled_id;
+    ScheduleAt scheduled_at;
+    uint64_t monster_id;
+};
+SPACETIMEDB_STRUCT(MonsterRespawnTimer, scheduled_id, scheduled_at, monster_id)
+SPACETIMEDB_TABLE(MonsterRespawnTimer, monster_respawn_timer, Private)
+FIELD_PrimaryKeyAutoInc(monster_respawn_timer, scheduled_id)
+SPACETIMEDB_SCHEDULE(monster_respawn_timer, 1, respawn_monster)
+
 namespace
 {
 constexpr size_t kMaxUsernameLength = 24;
 constexpr float kPlayerMaxHealth = 100.f;
+constexpr float kMonsterMaxHealth = 100.f;
 constexpr int64_t kPlayerRespawnDelayMillis = 1000;
+constexpr int64_t kMonsterRespawnDelayMillis = 1000;
 
 bool IsValidUsername(const std::string& Name)
 {
@@ -267,21 +292,6 @@ bool UpdateOnlinePlayerTransform(
     return true;
 }
 
-Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotation, Timestamp UpdatedAt)
-{
-    return Monster{
-        0,
-        Kind,
-        Spawn,
-        Rotation,
-        Spawn,
-        Rotation,
-        false,
-        false,
-        UpdatedAt
-    };
-}
-
 // One scheduled reducer for every monster. 50 ms is 20 Hz, which is enough for
 // client interpolation. Raise this only if the chase looks coarse.
 constexpr int64_t kMonsterTickMillis = 50;
@@ -298,7 +308,7 @@ struct MonsterKindConfig
     float TurnRate;
 };
 
-// Values match the Blueprint and C++ defaults these monsters used on the client.
+// Kind defaults for seeding and for rows that leave a range at zero.
 MonsterKindConfig ConfigForKind(uint8_t Kind)
 {
     if (Kind == 0)
@@ -309,6 +319,45 @@ MonsterKindConfig ConfigForKind(uint8_t Kind)
 
     // Ghost Fish. Detection 250, attack and stop at 120, chase at 250 cm/s.
     return MonsterKindConfig{250.f, 120.f, 120.f, 250.f, 480.f};
+}
+
+float EffectiveDetectionRange(const Monster& Row)
+{
+    if (Row.detection_range > 0.f)
+    {
+        return Row.detection_range;
+    }
+
+    return ConfigForKind(Row.kind).DetectionRange;
+}
+
+float EffectiveAttackRange(const Monster& Row)
+{
+    if (Row.attack_range > 0.f)
+    {
+        return Row.attack_range;
+    }
+
+    return ConfigForKind(Row.kind).AttackRange;
+}
+
+Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotation, Timestamp UpdatedAt)
+{
+    const MonsterKindConfig Defaults = ConfigForKind(Kind);
+    return Monster{
+        0,
+        Kind,
+        Spawn,
+        Rotation,
+        Spawn,
+        Rotation,
+        false,
+        false,
+        kMonsterMaxHealth,
+        UpdatedAt,
+        Defaults.DetectionRange,
+        Defaults.AttackRange
+    };
 }
 
 float DeltaDegrees(float From, float To)
@@ -401,11 +450,18 @@ bool MonsterStateChanged(const Monster& Before, const Monster& After)
 
 void TickOneMonster(ReducerContext& ctx, Monster Row)
 {
+    if (Row.health <= 0.f)
+    {
+        return;
+    }
+
     const Monster Before = Row;
     const MonsterKindConfig Config = ConfigForKind(Row.kind);
+    const float DetectionRange = EffectiveDetectionRange(Row);
+    const float AttackRange = EffectiveAttackRange(Row);
     DbVector3 Target{};
     float Distance = 0.f;
-    const bool bHasTarget = FindClosestOnlinePlayer(ctx, Row.position, Config.DetectionRange, Target, Distance);
+    const bool bHasTarget = FindClosestOnlinePlayer(ctx, Row.position, DetectionRange, Target, Distance);
 
     Row.position.z = Row.spawn_position.z;
     Row.rotation.pitch = 0.f;
@@ -432,7 +488,7 @@ void TickOneMonster(ReducerContext& ctx, Monster Row)
             }
         }
 
-        const bool bAttack = Distance <= Config.AttackRange;
+        const bool bAttack = Distance <= AttackRange;
         Row.is_attacking = bAttack;
         Row.loop_attack = bAttack;
     }
@@ -512,6 +568,33 @@ void SchedulePlayerRespawn(ReducerContext& ctx, const Player& PlayerRow)
         0,
         ScheduleAt::time(ctx.timestamp + TimeDuration::from_millis(kPlayerRespawnDelayMillis)),
         PlayerRow.name
+    });
+}
+
+bool HasPendingMonsterRespawn(ReducerContext& ctx, uint64_t MonsterId)
+{
+    for (const auto& Row : ctx.db[monster_respawn_timer])
+    {
+        if (Row.monster_id == MonsterId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void ScheduleMonsterRespawn(ReducerContext& ctx, const Monster& MonsterRow)
+{
+    if (MonsterRow.health > 0.f || HasPendingMonsterRespawn(ctx, MonsterRow.id))
+    {
+        return;
+    }
+
+    ctx.db[monster_respawn_timer].insert(MonsterRespawnTimer{
+        0,
+        ScheduleAt::time(ctx.timestamp + TimeDuration::from_millis(kMonsterRespawnDelayMillis)),
+        MonsterRow.id
     });
 }
 
@@ -698,6 +781,83 @@ SPACETIMEDB_REDUCER(damage_player, ReducerContext ctx, float amount)
     {
         SchedulePlayerRespawn(ctx, *PlayerRow);
     }
+    return Ok();
+}
+
+// Subtracts health from a monster row. Any logged-in client may call this for testing.
+SPACETIMEDB_REDUCER(damage_monster, ReducerContext ctx, uint64_t target_id, float amount)
+{
+    if (!std::isfinite(amount) || amount <= 0.f)
+    {
+        return Err("Damage must be greater than zero");
+    }
+
+    if (!ctx.connection_id)
+    {
+        return Err("Not logged in");
+    }
+
+    const auto Session = ctx.db[player_session_connection_id].find(*ctx.connection_id);
+    if (!Session)
+    {
+        return Err("Not logged in");
+    }
+
+    if (target_id == 0)
+    {
+        return Err("Invalid monster");
+    }
+
+    auto MonsterRow = ctx.db[monster_id].find(target_id);
+    if (!MonsterRow)
+    {
+        return Err("Unknown monster");
+    }
+
+    if (MonsterRow->health <= 0.f)
+    {
+        return Ok();
+    }
+
+    const float NextHealth = MonsterRow->health - amount;
+    MonsterRow->health = NextHealth > 0.f ? NextHealth : 0.f;
+    MonsterRow->updated_at = ctx.timestamp;
+    if (MonsterRow->health <= 0.f)
+    {
+        MonsterRow->is_attacking = false;
+        MonsterRow->loop_attack = false;
+    }
+
+    ctx.db[monster_id].update(*MonsterRow);
+    if (MonsterRow->health <= 0.f)
+    {
+        ScheduleMonsterRespawn(ctx, *MonsterRow);
+    }
+
+    return Ok();
+}
+
+// Runs one second after health reaches 0. Full health at the authored spawn transform.
+SPACETIMEDB_REDUCER(respawn_monster, ReducerContext ctx, MonsterRespawnTimer timer)
+{
+    if (ctx.connection_id)
+    {
+        return Err("Not a client reducer");
+    }
+
+    auto MonsterRow = ctx.db[monster_id].find(timer.monster_id);
+    if (!MonsterRow || MonsterRow->health > 0.f)
+    {
+        return Ok();
+    }
+
+    MonsterRow->health = kMonsterMaxHealth;
+    MonsterRow->position = MonsterRow->spawn_position;
+    MonsterRow->rotation = MonsterRow->spawn_rotation;
+    MonsterRow->is_attacking = false;
+    MonsterRow->loop_attack = false;
+    MonsterRow->updated_at = ctx.timestamp;
+    ctx.db[monster_id].update(*MonsterRow);
     return Ok();
 }
 

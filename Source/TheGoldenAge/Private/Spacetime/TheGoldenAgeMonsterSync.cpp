@@ -25,6 +25,16 @@ void UTheGoldenAgeMonsterSync::SetConnection(UDbConnection* InConn)
 	Conn = InConn;
 }
 
+void UTheGoldenAgeMonsterSync::RequestMonsterDamage(uint64 MonsterId, float Amount)
+{
+	if (!Conn || !Conn->Reducers || MonsterId == 0 || !FMath::IsFinite(Amount) || Amount <= 0.f)
+	{
+		return;
+	}
+
+	Conn->Reducers->DamageMonster(MonsterId, Amount);
+}
+
 void UTheGoldenAgeMonsterSync::Reset()
 {
 	for (TPair<uint64, TWeakObjectPtr<ATheGoldenAgeMonster>>& Pair : Monsters)
@@ -60,9 +70,23 @@ void UTheGoldenAgeMonsterSync::ApplyRow(const FMonsterType& Row)
 		return;
 	}
 
+	const bool bWasDead = Monster->IsDead();
+	Monster->ApplyServerHealth(Row.Health);
+
+	const bool bRespawned = bWasDead && !Monster->IsDead();
+	if (bRespawned)
+	{
+		Monster->HandleRespawned();
+	}
+
 	const FVector Location(Row.Position.X, Row.Position.Y, Row.Position.Z);
 	const FRotator Rotation(Row.Rotation.Pitch, Row.Rotation.Yaw, Row.Rotation.Roll);
 	Monster->ApplyServerState(Location, Rotation, Row.IsAttacking, Row.LoopAttack);
+
+	if (bRespawned)
+	{
+		Monster->FlushPresentedTransform();
+	}
 }
 
 ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::EnsureMonster(const FMonsterType& Row)

@@ -64,6 +64,52 @@ void URemoteTables::Initialize()
 	/**/
 }
 
+void URemoteReducers::DamageMonster(const uint64 TargetId, const float Amount)
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FDamageMonsterArgs ReducerArgs(TargetId, Amount);
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("damage_monster"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::DamageMonster(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeDamageMonster(const FReducerEventContext& Context, const UDamageMonsterReducer* Args)
+{
+    if (!OnDamageMonster.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for DamageMonster"));
+        }
+        return false;
+    }
+
+    OnDamageMonster.Broadcast(Context, Args->TargetId, Args->Amount);
+    return true;
+}
+
+bool URemoteReducers::InvokeDamageMonsterWithArgs(const FReducerEventContext& Context, const FDamageMonsterArgs& Args)
+{
+    if (!OnDamageMonster.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for DamageMonster"));
+        }
+        return false;
+    }
+
+    OnDamageMonster.Broadcast(Context, Args.TargetId, Args.Amount);
+    return true;
+}
+
 void URemoteReducers::DamagePlayer(const float Amount)
 {
     if (!Conn)
@@ -381,6 +427,12 @@ void UDbConnection::ReducerEvent(const FReducerEvent& Event)
     // Dispatch by typed reducer metadata
     const FString& ReducerName = ReducerEvent.Reducer.ReducerName;
 
+    if (ReducerName == TEXT("damage_monster"))
+    {
+        FDamageMonsterArgs Args = ReducerEvent.Reducer.GetAsDamageMonster();
+        Reducers->InvokeDamageMonsterWithArgs(Context, Args);
+        return;
+    }
     if (ReducerName == TEXT("damage_player"))
     {
         FDamagePlayerArgs Args = ReducerEvent.Reducer.GetAsDamagePlayer();

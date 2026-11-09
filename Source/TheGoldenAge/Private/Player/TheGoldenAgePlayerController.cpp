@@ -3,6 +3,7 @@
 #include "Player/TheGoldenAgePlayerController.h"
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
+#include "Spacetime/TheGoldenAgeMonsterSync.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
 #include "UObject/ConstructorHelpers.h"
@@ -47,6 +48,17 @@ void ATheGoldenAgePlayerController::DamageLocalPlayer(float Amount)
 	if (ATheGoldenAgePlayerCharacter* PlayerCharacter = Cast<ATheGoldenAgePlayerCharacter>(GetPawn()))
 	{
 		PlayerCharacter->ApplyDamage(Amount);
+	}
+}
+
+void ATheGoldenAgePlayerController::DamageMonster(uint64 MonsterId, float Amount)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UTheGoldenAgeMonsterSync* MonsterSync = World->GetSubsystem<UTheGoldenAgeMonsterSync>())
+		{
+			MonsterSync->RequestMonsterDamage(MonsterId, Amount);
+		}
 	}
 }
 

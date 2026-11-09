@@ -39,11 +39,20 @@ struct THEGOLDENAGE_API FMonsterType
     bool LoopAttack = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
+    float Health = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
     FSpacetimeDBTimestamp UpdatedAt;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
+    float DetectionRange = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
+    float AttackRange = 0.0f;
 
     FORCEINLINE bool operator==(const FMonsterType& Other) const
     {
-        return Id == Other.Id && Kind == Other.Kind && SpawnPosition == Other.SpawnPosition && SpawnRotation == Other.SpawnRotation && Position == Other.Position && Rotation == Other.Rotation && IsAttacking == Other.IsAttacking && LoopAttack == Other.LoopAttack && UpdatedAt == Other.UpdatedAt;
+        return Id == Other.Id && Kind == Other.Kind && SpawnPosition == Other.SpawnPosition && SpawnRotation == Other.SpawnRotation && Position == Other.Position && Rotation == Other.Rotation && IsAttacking == Other.IsAttacking && LoopAttack == Other.LoopAttack && Health == Other.Health && UpdatedAt == Other.UpdatedAt && DetectionRange == Other.DetectionRange && AttackRange == Other.AttackRange;
     }
 
     FORCEINLINE bool operator!=(const FMonsterType& Other) const
@@ -68,7 +77,10 @@ FORCEINLINE uint32 GetTypeHash(const FMonsterType& MonsterType)
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.Rotation));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.IsAttacking));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.LoopAttack));
+    Hash = HashCombine(Hash, GetTypeHash(MonsterType.Health));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.UpdatedAt));
+    Hash = HashCombine(Hash, GetTypeHash(MonsterType.DetectionRange));
+    Hash = HashCombine(Hash, GetTypeHash(MonsterType.AttackRange));
     return Hash;
 }
 
@@ -76,5 +88,5 @@ namespace UE::SpacetimeDB
 {
     UE_SPACETIMEDB_ENABLE_TARRAY(FMonsterType);
 
-    UE_SPACETIMEDB_STRUCT(FMonsterType, Id, Kind, SpawnPosition, SpawnRotation, Position, Rotation, IsAttacking, LoopAttack, UpdatedAt);
+    UE_SPACETIMEDB_STRUCT(FMonsterType, Id, Kind, SpawnPosition, SpawnRotation, Position, Rotation, IsAttacking, LoopAttack, Health, UpdatedAt, DetectionRange, AttackRange);
 }

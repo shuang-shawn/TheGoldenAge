@@ -44,6 +44,14 @@ FAnimNode_SequencePlayer* FindAttackSequencePlayer(UAnimInstance* AnimInstance)
 
 void ATheGoldenAgeChestMonster::UpdatePresentedAnim()
 {
+	if (IsDead())
+	{
+		bIsAttacking = false;
+		bLoopAttack = false;
+		PushAnimState();
+		return;
+	}
+
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
 	const FAnimNode_SequencePlayer* AttackPlayer = FindAttackSequencePlayer(AnimInstance);

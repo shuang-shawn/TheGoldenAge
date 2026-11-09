@@ -6,6 +6,9 @@
 #include "GameFramework/Character.h"
 #include "TheGoldenAgeMonster.generated.h"
 
+class UTheGoldenAgeHealthComponent;
+class UWidgetComponent;
+
 /**
  * Shared monster base. The server decides position, facing, and attack flags.
  * This actor only renders the subscribed row. Role tags still decide who can see it.
@@ -46,7 +49,33 @@ public:
 	/** Queues one server sample. Tick renders about 100 ms behind the latest sample. */
 	void ApplyServerState(const FVector& Location, const FRotator& Rotation, bool bAttacking, bool bLoopAttack);
 
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	void ApplyServerHealth(float NewHealth);
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	bool IsDead() const;
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	UTheGoldenAgeHealthComponent* GetHealth() const { return Health; }
+
+	/** Clears stale death-position samples before the respawn row is applied. */
+	void HandleRespawned();
+
+	/** Renders the latest queued sample immediately (used right after respawn). */
+	void FlushPresentedTransform();
+
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
+	TObjectPtr<UTheGoldenAgeHealthComponent> Health;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
+	TObjectPtr<UWidgetComponent> HealthBar;
+
+	void PushHealthAnimState();
+	void BindHealthBar();
+
+	UFUNCTION()
+	void HandleDied();
 	/** True while the latest server row says the attack should keep looping. */
 	bool WantsLoopingAttack() const { return bServerLoopAttack; }
 

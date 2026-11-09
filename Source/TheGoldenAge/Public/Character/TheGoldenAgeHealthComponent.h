@@ -10,7 +10,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTheGoldenAgeHealthChanged, float
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTheGoldenAgeDied);
 
 /**
- * Displays the health stored on the player's SpacetimeDB row.
+ * Displays health copied from a SpacetimeDB row (`player.health` or `monster.health`).
  * Reaching zero marks the owner dead once. This component does not change that row.
  */
 UCLASS(ClassGroup = (Gameplay), meta = (BlueprintSpawnableComponent))

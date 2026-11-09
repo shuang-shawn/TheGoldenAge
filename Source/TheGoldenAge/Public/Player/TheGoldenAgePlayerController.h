@@ -24,6 +24,10 @@ protected:
 	UFUNCTION(Exec)
 	void DamageLocalPlayer(float Amount);
 
+	/** Console: DamageMonster 1 25. Asks the server to damage the monster row id. */
+	UFUNCTION(Exec)
+	void DamageMonster(uint64 MonsterId, float Amount);
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 

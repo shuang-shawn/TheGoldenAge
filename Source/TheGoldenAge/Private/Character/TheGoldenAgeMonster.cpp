@@ -2,11 +2,15 @@
 
 #include "Character/TheGoldenAgeMonster.h"
 
+#include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgePlayerCharacter.h"
+#include "Components/WidgetComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "UI/TheGoldenAgeHealthBarWidget.h"
+#include "UObject/UnrealType.h"
 
 const FName ATheGoldenAgeMonster::MonsterActorTag(TEXT("Monster"));
 const FName ATheGoldenAgeMonster::TrapActorTag(TEXT("Trap"));
@@ -33,11 +37,29 @@ ATheGoldenAgeMonster::ATheGoldenAgeMonster()
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	Movement->bOrientRotationToMovement = false;
 	Movement->bUseControllerDesiredRotation = false;
+
+	Health = CreateDefaultSubobject<UTheGoldenAgeHealthComponent>(TEXT("Health"));
+
+	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
+	HealthBar->SetupAttachment(RootComponent);
+	HealthBar->SetWidgetSpace(EWidgetSpace::Screen);
+	HealthBar->SetWidgetClass(UTheGoldenAgeHealthBarWidget::StaticClass());
+	HealthBar->SetDrawSize(FVector2D(160.f, 14.f));
+	HealthBar->SetPivot(FVector2D(0.5f, 0.f));
+	HealthBar->SetRelativeLocation(FVector(0.f, 0.f, -110.f));
+	HealthBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HealthBar->SetGenerateOverlapEvents(false);
+	HealthBar->SetCanEverAffectNavigation(false);
 }
 
 void ATheGoldenAgeMonster::BeginPlay()
 {
 	Super::BeginPlay();
+	if (Health)
+	{
+		Health->OnDied.AddDynamic(this, &ATheGoldenAgeMonster::HandleDied);
+	}
+	BindHealthBar();
 	ApplyLocalViewerVisibility(GetWorld());
 }
 
@@ -115,6 +137,7 @@ void ATheGoldenAgeMonster::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	PresentSnapshot();
 	UpdatePresentedAnim();
+	PushHealthAnimState();
 }
 
 void ATheGoldenAgeMonster::UpdatePresentedAnim()
@@ -198,4 +221,66 @@ void ATheGoldenAgeMonster::PresentSnapshot()
 	const float Yaw = Older.Yaw + FMath::FindDeltaAngleDegrees(Older.Yaw, Newer.Yaw) * Alpha;
 	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
 	SetActorRotation(FRotator(0.f, Yaw, 0.f));
+}
+
+void ATheGoldenAgeMonster::ApplyServerHealth(float NewHealth)
+{
+	if (Health)
+	{
+		Health->ApplyServerHealth(NewHealth);
+	}
+}
+
+bool ATheGoldenAgeMonster::IsDead() const
+{
+	return Health && Health->IsDead();
+}
+
+void ATheGoldenAgeMonster::BindHealthBar()
+{
+	if (!HealthBar || !Health)
+	{
+		return;
+	}
+
+	if (!HealthBar->GetWidget())
+	{
+		HealthBar->InitWidget();
+	}
+
+	if (UTheGoldenAgeHealthBarWidget* Bar = Cast<UTheGoldenAgeHealthBarWidget>(HealthBar->GetWidget()))
+	{
+		Bar->SetHealthComponent(Health);
+	}
+}
+
+void ATheGoldenAgeMonster::PushHealthAnimState()
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (!AnimInstance)
+	{
+		return;
+	}
+
+	UClass* AnimClass = AnimInstance->GetClass();
+	if (FBoolProperty* DeadProperty = FindFProperty<FBoolProperty>(AnimClass, TEXT("bIsDead")))
+	{
+		DeadProperty->SetPropertyValue_InContainer(AnimInstance, IsDead());
+	}
+}
+
+void ATheGoldenAgeMonster::HandleDied()
+{
+	// Attack presentation stops while dead; the server also clears attack flags.
+}
+
+void ATheGoldenAgeMonster::HandleRespawned()
+{
+	Snapshots.Empty();
+}
+
+void ATheGoldenAgeMonster::FlushPresentedTransform()
+{
+	PresentSnapshot();
 }

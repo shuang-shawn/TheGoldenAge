@@ -30,6 +30,9 @@ public:
 	void SyncFromConnection();
 	void Reset();
 
+	/** Calls damage_monster for a server row id. Requires login. */
+	void RequestMonsterDamage(uint64 MonsterId, float Amount);
+
 	UFUNCTION()
 	void HandleMonsterInsert(const FEventContext& Context, const FMonsterType& NewRow);
 

@@ -12,6 +12,7 @@
 #include "Connection/Subscription.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "ModuleBindings/ReducerBase.g.h"
+#include "ModuleBindings/Reducers/DamageMonster.g.h"
 #include "ModuleBindings/Reducers/DamagePlayer.g.h"
 #include "ModuleBindings/Reducers/EnsureMonsterTick.g.h"
 #include "ModuleBindings/Reducers/Login.g.h"
@@ -105,6 +106,7 @@ private:
 UENUM(BlueprintType, Category = "SpacetimeDB")
 enum class EReducerTag : uint8
 {
+    DamageMonster,
     DamagePlayer,
     EnsureMonsterTick,
     Login,
@@ -121,13 +123,29 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "SpacetimeDB")
     EReducerTag Tag = static_cast<EReducerTag>(0);
 
-    TVariant<FDamagePlayerArgs, FEnsureMonsterTickArgs, FLoginArgs, FSeedMonstersArgs, FUpdatePlayerTransformArgs> Data;
+    TVariant<FDamageMonsterArgs, FDamagePlayerArgs, FEnsureMonsterTickArgs, FLoginArgs, FSeedMonstersArgs, FUpdatePlayerTransformArgs> Data;
 
     // Optional metadata
     UPROPERTY(BlueprintReadOnly, Category = "SpacetimeDB")
     FString ReducerName;
     uint32 ReducerId = 0;
     uint32 RequestId = 0;
+
+    static FReducer DamageMonster(const FDamageMonsterArgs& Value)
+    {
+        FReducer Out;
+        Out.Tag = EReducerTag::DamageMonster;
+        Out.Data.Set<FDamageMonsterArgs>(Value);
+        Out.ReducerName = TEXT("damage_monster");
+        return Out;
+    }
+
+    FORCEINLINE bool IsDamageMonster() const { return Tag == EReducerTag::DamageMonster; }
+    FORCEINLINE FDamageMonsterArgs GetAsDamageMonster() const
+    {
+        ensureMsgf(IsDamageMonster(), TEXT("Reducer does not hold DamageMonster!"));
+        return Data.Get<FDamageMonsterArgs>();
+    }
 
     static FReducer DamagePlayer(const FDamagePlayerArgs& Value)
     {
@@ -214,6 +232,8 @@ public:
         if (Tag != Other.Tag || ReducerId != Other.ReducerId || RequestId != Other.RequestId || ReducerName != Other.ReducerName) return false;
         switch (Tag)
         {
+        case EReducerTag::DamageMonster:
+            return GetAsDamageMonster() == Other.GetAsDamageMonster();
         case EReducerTag::DamagePlayer:
             return GetAsDamagePlayer() == Other.GetAsDamagePlayer();
         case EReducerTag::EnsureMonsterTick:
@@ -236,6 +256,19 @@ class THEGOLDENAGE_API UReducerBpLib : public UBlueprintFunctionLibrary
     GENERATED_BODY()
 
 private:
+
+    UFUNCTION(BlueprintCallable, Category = "SpacetimeDB|Reducer")
+    static FReducer DamageMonster(const FDamageMonsterArgs& Value) {
+        return FReducer::DamageMonster(Value);
+    }
+
+    UFUNCTION(BlueprintPure, Category = "SpacetimeDB|Reducer")
+    static bool IsDamageMonster(const FReducer& Reducer) { return Reducer.IsDamageMonster(); }
+
+    UFUNCTION(BlueprintPure, Category = "SpacetimeDB|Reducer")
+    static FDamageMonsterArgs GetAsDamageMonster(const FReducer& Reducer) {
+        return Reducer.GetAsDamageMonster();
+    }
 
     UFUNCTION(BlueprintCallable, Category = "SpacetimeDB|Reducer")
     static FReducer DamagePlayer(const FDamagePlayerArgs& Value) {
@@ -731,6 +764,21 @@ class THEGOLDENAGE_API URemoteReducers : public UObject
 
 public:
 
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+        FDamageMonsterHandler,
+        const FReducerEventContext&, Context,
+        uint64, TargetId,
+        float, Amount
+    );
+    // NOTE: Not exposed to Blueprint because uint64 types are not Blueprint-compatible
+    FDamageMonsterHandler OnDamageMonster;
+
+    // NOTE: Not exposed to Blueprint because uint64 types are not Blueprint-compatible
+    void DamageMonster(const uint64 TargetId, const float Amount);
+
+    bool InvokeDamageMonster(const FReducerEventContext& Context, const UDamageMonsterReducer* Args);
+    bool InvokeDamageMonsterWithArgs(const FReducerEventContext& Context, const FDamageMonsterArgs& Args);
+
     DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
         FDamagePlayerHandler,
         const FReducerEventContext&, Context,
@@ -843,7 +891,7 @@ struct THEGOLDENAGE_API FPlayerIxCols;
 struct THEGOLDENAGE_API FMonsterCols
 {
     explicit FMonsterCols(const char* TableName)
-        : Id(TableName, "id"), Kind(TableName, "kind"), SpawnPosition(TableName, "spawn_position"), SpawnRotation(TableName, "spawn_rotation"), Position(TableName, "position"), Rotation(TableName, "rotation"), IsAttacking(TableName, "is_attacking"), LoopAttack(TableName, "loop_attack"), UpdatedAt(TableName, "updated_at") {}
+        : Id(TableName, "id"), Kind(TableName, "kind"), SpawnPosition(TableName, "spawn_position"), SpawnRotation(TableName, "spawn_rotation"), Position(TableName, "position"), Rotation(TableName, "rotation"), IsAttacking(TableName, "is_attacking"), LoopAttack(TableName, "loop_attack"), Health(TableName, "health"), UpdatedAt(TableName, "updated_at"), DetectionRange(TableName, "detection_range"), AttackRange(TableName, "attack_range") {}
 
     ::SpacetimeDB::query_builder::Col<FMonsterType, uint64> Id;
     ::SpacetimeDB::query_builder::Col<FMonsterType, uint8> Kind;
@@ -853,7 +901,10 @@ struct THEGOLDENAGE_API FMonsterCols
     ::SpacetimeDB::query_builder::Col<FMonsterType, FDbRotatorType> Rotation;
     ::SpacetimeDB::query_builder::Col<FMonsterType, bool> IsAttacking;
     ::SpacetimeDB::query_builder::Col<FMonsterType, bool> LoopAttack;
+    ::SpacetimeDB::query_builder::Col<FMonsterType, float> Health;
     ::SpacetimeDB::query_builder::Col<FMonsterType, FSpacetimeDBTimestamp> UpdatedAt;
+    ::SpacetimeDB::query_builder::Col<FMonsterType, float> DetectionRange;
+    ::SpacetimeDB::query_builder::Col<FMonsterType, float> AttackRange;
 };
 
 struct THEGOLDENAGE_API FMonsterIxCols
@@ -1151,12 +1202,39 @@ public:
         return Column;
     }
 
+    UFUNCTION(BlueprintPure, Category="SpacetimeDB|Queries|Monster|Columns", meta=(DisplayName="Monster Health"))
+    static FBlueprintFloatColumn MonsterHealth(const FMonsterQuery& Query)
+    {
+        FBlueprintFloatColumn Column;
+        Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("monster") : Query.ResultSourceName;
+        Column.ColumnName = TEXT("health");
+        return Column;
+    }
+
     UFUNCTION(BlueprintPure, Category="SpacetimeDB|Queries|Monster|Columns", meta=(DisplayName="Monster UpdatedAt"))
     static FBlueprintTimestampColumn MonsterUpdatedAt(const FMonsterQuery& Query)
     {
         FBlueprintTimestampColumn Column;
         Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("monster") : Query.ResultSourceName;
         Column.ColumnName = TEXT("updated_at");
+        return Column;
+    }
+
+    UFUNCTION(BlueprintPure, Category="SpacetimeDB|Queries|Monster|Columns", meta=(DisplayName="Monster DetectionRange"))
+    static FBlueprintFloatColumn MonsterDetectionRange(const FMonsterQuery& Query)
+    {
+        FBlueprintFloatColumn Column;
+        Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("monster") : Query.ResultSourceName;
+        Column.ColumnName = TEXT("detection_range");
+        return Column;
+    }
+
+    UFUNCTION(BlueprintPure, Category="SpacetimeDB|Queries|Monster|Columns", meta=(DisplayName="Monster AttackRange"))
+    static FBlueprintFloatColumn MonsterAttackRange(const FMonsterQuery& Query)
+    {
+        FBlueprintFloatColumn Column;
+        Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("monster") : Query.ResultSourceName;
+        Column.ColumnName = TEXT("attack_range");
         return Column;
     }
 
