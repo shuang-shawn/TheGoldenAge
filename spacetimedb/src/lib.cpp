@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -48,12 +49,15 @@ struct Player
     Timestamp updated_at;
     // 0 = Hero, 1 = Explorer. Chosen once when the row is created.
     uint8_t role;
+    // Server-owned hit points. Clients render this value. 0 means dead.
+    float health;
 };
-SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at, role)
+SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at, role, health)
 SPACETIMEDB_TABLE(Player, player, Public)
 FIELD_PrimaryKey(player, name)
 FIELD_Unique(player, identity)
 FIELD_Default(player, role, uint8_t{0})
+FIELD_Default(player, health, 100.f)
 
 // Private. Which live connection may move which username.
 struct PlayerSession
@@ -66,11 +70,11 @@ SPACETIMEDB_TABLE(PlayerSession, player_session, Private)
 FIELD_PrimaryKey(player_session, connection_id)
 FIELD_Unique(player_session, name)
 
-// Public. One persistent row per monster. Clients spawn from this table.
+// Public. One persistent row per monster. Clients spawn from this table and only render it.
 // kind: 0 = Chest Monster, 1 = Ghost Fish.
 // spawn_* is the authored point and is never overwritten by movement updates.
-// owner is the player name currently driving the monster, or empty when unclaimed.
-// loop_attack is true only while that owner still sees a player in range.
+// The module writes position, rotation, and the attack flags. No client owns a row.
+// loop_attack is true only while a player is inside that kind's attack range.
 struct Monster
 {
     uint64_t id;
@@ -79,7 +83,6 @@ struct Monster
     DbRotator spawn_rotation;
     DbVector3 position;
     DbRotator rotation;
-    std::string owner;
     bool is_attacking;
     bool loop_attack;
     Timestamp updated_at;
@@ -92,17 +95,27 @@ SPACETIMEDB_STRUCT(
     spawn_rotation,
     position,
     rotation,
-    owner,
     is_attacking,
     loop_attack,
     updated_at)
 SPACETIMEDB_TABLE(Monster, monster, Public)
 FIELD_PrimaryKeyAutoInc(monster, id)
-FIELD_Index(monster, owner)
+
+// Private. One interval row keeps monster_tick running. Clients never subscribe to it.
+struct MonsterTickTimer
+{
+    uint64_t scheduled_id;
+    ScheduleAt scheduled_at;
+};
+SPACETIMEDB_STRUCT(MonsterTickTimer, scheduled_id, scheduled_at)
+SPACETIMEDB_TABLE(MonsterTickTimer, monster_tick_timer, Private)
+FIELD_PrimaryKeyAutoInc(monster_tick_timer, scheduled_id)
+SPACETIMEDB_SCHEDULE(monster_tick_timer, 1, monster_tick)
 
 namespace
 {
 constexpr size_t kMaxUsernameLength = 24;
+constexpr float kPlayerMaxHealth = 100.f;
 
 bool IsValidUsername(const std::string& Name)
 {
@@ -155,8 +168,6 @@ Identity AllocatePlayerIdentity(ReducerContext& ctx)
     }
 }
 
-void ReleaseMonstersOwnedBy(ReducerContext& ctx, const std::string& Name);
-
 void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const std::string& Name)
 {
     if (auto ExistingByName = ctx.db[player_session_name].find(Name))
@@ -171,7 +182,6 @@ void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const s
     {
         if (ExistingByConnection->name != Name)
         {
-            ReleaseMonstersOwnedBy(ctx, ExistingByConnection->name);
             if (auto OtherPlayer = ctx.db[player_name].find(ExistingByConnection->name))
             {
                 OtherPlayer->online = false;
@@ -188,29 +198,6 @@ void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const s
     ctx.db[player_session].insert(PlayerSession{Connection, Name});
 }
 
-void ReleaseMonstersOwnedBy(ReducerContext& ctx, const std::string& Name)
-{
-    if (Name.empty())
-    {
-        return;
-    }
-
-    std::vector<Monster> Owned;
-    for (const auto& Row : ctx.db[monster_owner].filter(Name))
-    {
-        Owned.push_back(Row);
-    }
-
-    for (Monster& Row : Owned)
-    {
-        Row.owner.clear();
-        Row.is_attacking = false;
-        Row.loop_attack = false;
-        Row.updated_at = ctx.timestamp;
-        ctx.db[monster_id].update(Row);
-    }
-}
-
 void SetPlayerOfflineByConnection(ReducerContext& ctx)
 {
     if (!ctx.connection_id)
@@ -221,8 +208,6 @@ void SetPlayerOfflineByConnection(ReducerContext& ctx)
     const ConnectionId Connection = *ctx.connection_id;
     if (auto Session = ctx.db[player_session_connection_id].find(Connection))
     {
-        ReleaseMonstersOwnedBy(ctx, Session->name);
-
         if (auto PlayerRow = ctx.db[player_name].find(Session->name))
         {
             PlayerRow->online = false;
@@ -263,40 +248,6 @@ bool UpdateOnlinePlayerTransform(
     return true;
 }
 
-// Logged-in player name for this connection, or empty when the caller cannot act.
-std::string OnlineCallerName(ReducerContext& ctx)
-{
-    if (!ctx.connection_id)
-    {
-        return {};
-    }
-
-    const auto Session = ctx.db[player_session_connection_id].find(*ctx.connection_id);
-    if (!Session)
-    {
-        return {};
-    }
-
-    const auto PlayerRow = ctx.db[player_name].find(Session->name);
-    if (!PlayerRow || !PlayerRow->online)
-    {
-        return {};
-    }
-
-    return Session->name;
-}
-
-bool MonsterOwnerIsAbsent(ReducerContext& ctx, const std::string& Owner)
-{
-    if (Owner.empty())
-    {
-        return true;
-    }
-
-    const auto OwnerRow = ctx.db[player_name].find(Owner);
-    return !OwnerRow || !OwnerRow->online;
-}
-
 Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotation, Timestamp UpdatedAt)
 {
     return Monster{
@@ -306,11 +257,229 @@ Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotat
         Rotation,
         Spawn,
         Rotation,
-        std::string{},
         false,
         false,
         UpdatedAt
     };
+}
+
+// One scheduled reducer for every monster. 50 ms is 20 Hz, which is enough for
+// client interpolation. Raise this only if the chase looks coarse.
+constexpr int64_t kMonsterTickMillis = 50;
+constexpr float kMonsterTickSeconds = 0.05f;
+constexpr float kMonsterStateEpsilon = 0.01f;
+constexpr float kDegreesPerRadian = 57.2957795f;
+
+struct MonsterKindConfig
+{
+    float DetectionRange;
+    float AttackRange;
+    float StopDistance;
+    float Speed;
+    float TurnRate;
+};
+
+// Values match the Blueprint and C++ defaults these monsters used on the client.
+MonsterKindConfig ConfigForKind(uint8_t Kind)
+{
+    if (Kind == 0)
+    {
+        // Chest Monster. It turns and attacks, and it does not move.
+        return MonsterKindConfig{500.f, 500.f, 0.f, 0.f, 480.f};
+    }
+
+    // Ghost Fish. Detection 250, attack and stop at 120, chase at 250 cm/s.
+    return MonsterKindConfig{250.f, 120.f, 120.f, 250.f, 480.f};
+}
+
+float DeltaDegrees(float From, float To)
+{
+    float Delta = std::fmod(To - From, 360.f);
+    if (Delta > 180.f)
+    {
+        Delta -= 360.f;
+    }
+    else if (Delta < -180.f)
+    {
+        Delta += 360.f;
+    }
+    return Delta;
+}
+
+float TurnToward(float Yaw, float DesiredYaw, float TurnRate, float DeltaSeconds)
+{
+    const float Delta = DeltaDegrees(Yaw, DesiredYaw);
+    const float MaxStep = TurnRate * DeltaSeconds;
+    if (std::fabs(Delta) <= MaxStep)
+    {
+        return DesiredYaw;
+    }
+
+    return Yaw + std::copysign(MaxStep, Delta);
+}
+
+float HorizontalDistanceSquared(const DbVector3& From, const DbVector3& To)
+{
+    const float Dx = To.x - From.x;
+    const float Dy = To.y - From.y;
+    return Dx * Dx + Dy * Dy;
+}
+
+bool FindClosestOnlinePlayer(
+    ReducerContext& ctx,
+    const DbVector3& Origin,
+    float Range,
+    DbVector3& OutPosition,
+    float& OutDistance)
+{
+    const float RangeSquared = Range * Range;
+    bool bFound = false;
+    float BestDistanceSquared = 0.f;
+
+    for (const auto& Row : ctx.db[player])
+    {
+        if (!Row.online)
+        {
+            continue;
+        }
+
+        const float DistanceSquared = HorizontalDistanceSquared(Origin, Row.position);
+        if (DistanceSquared > RangeSquared)
+        {
+            continue;
+        }
+
+        if (!bFound || DistanceSquared < BestDistanceSquared)
+        {
+            bFound = true;
+            BestDistanceSquared = DistanceSquared;
+            OutPosition = Row.position;
+            OutDistance = std::sqrt(DistanceSquared);
+        }
+    }
+
+    return bFound;
+}
+
+bool MonsterStateChanged(const Monster& Before, const Monster& After)
+{
+    if (Before.is_attacking != After.is_attacking || Before.loop_attack != After.loop_attack)
+    {
+        return true;
+    }
+
+    if (std::fabs(Before.position.x - After.position.x) > kMonsterStateEpsilon
+        || std::fabs(Before.position.y - After.position.y) > kMonsterStateEpsilon
+        || std::fabs(Before.position.z - After.position.z) > kMonsterStateEpsilon)
+    {
+        return true;
+    }
+
+    return std::fabs(DeltaDegrees(Before.rotation.yaw, After.rotation.yaw)) > kMonsterStateEpsilon
+        || std::fabs(Before.rotation.pitch - After.rotation.pitch) > kMonsterStateEpsilon
+        || std::fabs(Before.rotation.roll - After.rotation.roll) > kMonsterStateEpsilon;
+}
+
+void TickOneMonster(ReducerContext& ctx, Monster Row)
+{
+    const Monster Before = Row;
+    const MonsterKindConfig Config = ConfigForKind(Row.kind);
+    DbVector3 Target{};
+    float Distance = 0.f;
+    const bool bHasTarget = FindClosestOnlinePlayer(ctx, Row.position, Config.DetectionRange, Target, Distance);
+
+    Row.position.z = Row.spawn_position.z;
+    Row.rotation.pitch = 0.f;
+    Row.rotation.roll = 0.f;
+
+    if (!bHasTarget)
+    {
+        Row.is_attacking = false;
+        Row.loop_attack = false;
+    }
+    else
+    {
+        if (Distance > kMonsterStateEpsilon)
+        {
+            const float DesiredYaw = std::atan2(Target.y - Row.position.y, Target.x - Row.position.x) * kDegreesPerRadian;
+            Row.rotation.yaw = TurnToward(Row.rotation.yaw, DesiredYaw, Config.TurnRate, kMonsterTickSeconds);
+
+            if (Config.Speed > 0.f && Distance > Config.StopDistance)
+            {
+                const float Step = std::min(Config.Speed * kMonsterTickSeconds, Distance - Config.StopDistance);
+                const float Scale = Step / Distance;
+                Row.position.x += (Target.x - Row.position.x) * Scale;
+                Row.position.y += (Target.y - Row.position.y) * Scale;
+            }
+        }
+
+        const bool bAttack = Distance <= Config.AttackRange;
+        Row.is_attacking = bAttack;
+        Row.loop_attack = bAttack;
+    }
+
+    if (!MonsterStateChanged(Before, Row))
+    {
+        return;
+    }
+
+    Row.updated_at = ctx.timestamp;
+    ctx.db[monster_id].update(Row);
+}
+
+void TickMonsters(ReducerContext& ctx)
+{
+    bool bAnyOnline = false;
+    for (const auto& Row : ctx.db[player])
+    {
+        if (Row.online)
+        {
+            bAnyOnline = true;
+            break;
+        }
+    }
+
+    std::vector<Monster> Rows;
+    for (const auto& Row : ctx.db[monster])
+    {
+        Rows.push_back(Row);
+    }
+
+    if (!bAnyOnline)
+    {
+        for (Monster& Row : Rows)
+        {
+            if (!Row.is_attacking && !Row.loop_attack)
+            {
+                continue;
+            }
+
+            Row.is_attacking = false;
+            Row.loop_attack = false;
+            Row.updated_at = ctx.timestamp;
+            ctx.db[monster_id].update(Row);
+        }
+        return;
+    }
+
+    for (const Monster& Row : Rows)
+    {
+        TickOneMonster(ctx, Row);
+    }
+}
+
+void EnsureMonsterTick(ReducerContext& ctx)
+{
+    if (ctx.db[monster_tick_timer].count() > 0)
+    {
+        return;
+    }
+
+    ctx.db[monster_tick_timer].insert(MonsterTickTimer{
+        0,
+        ScheduleAt::interval(TimeDuration::from_millis(kMonsterTickMillis))
+    });
+    LOG_INFO("Scheduled monster_tick at 20 Hz");
 }
 
 // Positions match the actors that were placed in Lvl_Main before server seeding.
@@ -334,13 +503,27 @@ SPACETIMEDB_INIT(init, ReducerContext ctx)
 {
     LOG_INFO("TheGoldenAge module ready");
     SeedMonstersIfEmpty(ctx);
+    EnsureMonsterTick(ctx);
     return Ok();
 }
 
-// init does not re-run on an existing database. Call this once after publish.
+// init does not re-run on an existing database. Call these once after publish.
 SPACETIMEDB_REDUCER(seed_monsters, ReducerContext ctx)
 {
     SeedMonstersIfEmpty(ctx);
+    return Ok();
+}
+
+SPACETIMEDB_REDUCER(ensure_monster_tick, ReducerContext ctx)
+{
+    EnsureMonsterTick(ctx);
+    return Ok();
+}
+
+SPACETIMEDB_REDUCER(monster_tick, ReducerContext ctx, MonsterTickTimer timer)
+{
+    (void)timer;
+    TickMonsters(ctx);
     return Ok();
 }
 
@@ -423,8 +606,46 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         DbRotator{0.f, 0.f, 0.f},
         true,
         ctx.timestamp,
-        role
+        role,
+        kPlayerMaxHealth
     });
+    return Ok();
+}
+
+// Subtracts health from the logged-in caller. The row is the only place health changes.
+SPACETIMEDB_REDUCER(damage_player, ReducerContext ctx, float amount)
+{
+    if (!std::isfinite(amount) || amount <= 0.f)
+    {
+        return Err("Damage must be greater than zero");
+    }
+
+    if (!ctx.connection_id)
+    {
+        return Err("Not logged in");
+    }
+
+    const auto Session = ctx.db[player_session_connection_id].find(*ctx.connection_id);
+    if (!Session)
+    {
+        return Err("Not logged in");
+    }
+
+    auto PlayerRow = ctx.db[player_name].find(Session->name);
+    if (!PlayerRow || !PlayerRow->online)
+    {
+        return Err("Not logged in");
+    }
+
+    if (PlayerRow->health <= 0.f)
+    {
+        return Ok();
+    }
+
+    const float NextHealth = PlayerRow->health - amount;
+    PlayerRow->health = NextHealth > 0.f ? NextHealth : 0.f;
+    PlayerRow->updated_at = ctx.timestamp;
+    ctx.db[player_name].update(*PlayerRow);
     return Ok();
 }
 
@@ -436,97 +657,5 @@ SPACETIMEDB_REDUCER(update_player_transform, ReducerContext ctx, DbVector3 posit
         return Err("Not logged in");
     }
 
-    return Ok();
-}
-
-SPACETIMEDB_REDUCER(claim_monster, ReducerContext ctx, uint64_t id)
-{
-    const std::string Caller = OnlineCallerName(ctx);
-    if (Caller.empty())
-    {
-        return Err("Not logged in");
-    }
-
-    auto Row = ctx.db[monster_id].find(id);
-    if (!Row)
-    {
-        return Err("Unknown monster");
-    }
-
-    if (Row->owner == Caller)
-    {
-        return Ok();
-    }
-
-    if (!MonsterOwnerIsAbsent(ctx, Row->owner))
-    {
-        return Err("Already claimed");
-    }
-
-    Row->owner = Caller;
-    Row->updated_at = ctx.timestamp;
-    ctx.db[monster_id].update(*Row);
-    return Ok();
-}
-
-SPACETIMEDB_REDUCER(
-    update_monster,
-    ReducerContext ctx,
-    uint64_t id,
-    DbVector3 position,
-    DbRotator rotation,
-    bool is_attacking,
-    bool loop_attack)
-{
-    const std::string Caller = OnlineCallerName(ctx);
-    if (Caller.empty())
-    {
-        return Err("Not logged in");
-    }
-
-    auto Row = ctx.db[monster_id].find(id);
-    if (!Row)
-    {
-        return Err("Unknown monster");
-    }
-
-    if (Row->owner != Caller)
-    {
-        return Err("Not the owner");
-    }
-
-    Row->position = position;
-    Row->rotation = rotation;
-    Row->is_attacking = is_attacking;
-    Row->loop_attack = loop_attack;
-    Row->updated_at = ctx.timestamp;
-    ctx.db[monster_id].update(*Row);
-    return Ok();
-}
-
-SPACETIMEDB_REDUCER(release_monster, ReducerContext ctx, uint64_t id)
-{
-    const std::string Caller = OnlineCallerName(ctx);
-    if (Caller.empty())
-    {
-        return Err("Not logged in");
-    }
-
-    auto Row = ctx.db[monster_id].find(id);
-    if (!Row)
-    {
-        return Err("Unknown monster");
-    }
-
-    if (Row->owner != Caller)
-    {
-        return Err("Not the owner");
-    }
-
-    Row->owner.clear();
-    Row->is_attacking = false;
-    Row->loop_attack = false;
-    Row->updated_at = ctx.timestamp;
-    ctx.db[monster_id].update(*Row);
     return Ok();
 }

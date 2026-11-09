@@ -42,16 +42,14 @@ FAnimNode_SequencePlayer* FindAttackSequencePlayer(UAnimInstance* AnimInstance)
 }
 }
 
-void ATheGoldenAgeChestMonster::HandleNearbyPlayers_Implementation(
-	const TArray<AActor*>& NearbyPlayers, float DeltaSeconds)
+void ATheGoldenAgeChestMonster::UpdatePresentedAnim()
 {
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
 	const FAnimNode_SequencePlayer* AttackPlayer = FindAttackSequencePlayer(AnimInstance);
 
-	if (AActor* ClosestPlayer = FindClosestPlayer(NearbyPlayers))
+	if (WantsLoopingAttack())
 	{
-		FacePlayer(ClosestPlayer, DeltaSeconds);
 		bIsAttacking = true;
 		bLoopAttack = true;
 	}
@@ -86,44 +84,6 @@ void ATheGoldenAgeChestMonster::HandleNearbyPlayers_Implementation(
 	PushAnimState();
 }
 
-AActor* ATheGoldenAgeChestMonster::FindClosestPlayer(const TArray<AActor*>& NearbyPlayers) const
-{
-	const FVector Origin = GetActorLocation();
-	AActor* ClosestPlayer = nullptr;
-	float ClosestDistanceSquared = 0.f;
-
-	for (AActor* Player : NearbyPlayers)
-	{
-		if (!IsValid(Player))
-		{
-			continue;
-		}
-
-		const float DistanceSquared = FVector::DistSquared2D(Origin, Player->GetActorLocation());
-		if (!ClosestPlayer || DistanceSquared < ClosestDistanceSquared)
-		{
-			ClosestDistanceSquared = DistanceSquared;
-			ClosestPlayer = Player;
-		}
-	}
-
-	return ClosestPlayer;
-}
-
-void ATheGoldenAgeChestMonster::FacePlayer(const AActor* Player, float DeltaSeconds)
-{
-	const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
-	if (ToPlayer.SizeSquared2D() <= KINDA_SMALL_NUMBER)
-	{
-		return;
-	}
-
-	const FRotator DesiredRotation(0.f, ToPlayer.Rotation().Yaw, 0.f);
-	const FRotator UpdatedRotation = FMath::RInterpConstantTo(
-		GetActorRotation(), DesiredRotation, DeltaSeconds, FacingTurnRate);
-	SetActorRotation(FRotator(0.f, UpdatedRotation.Yaw, 0.f));
-}
-
 bool ATheGoldenAgeChestMonster::HasCurrentAttackFinished(float PlaybackTime, float PlayLength) const
 {
 	if (PlayLength <= KINDA_SMALL_NUMBER)
@@ -137,30 +97,6 @@ bool ATheGoldenAgeChestMonster::HasCurrentAttackFinished(float PlaybackTime, flo
 	return bReachedEnd || bWrapped;
 }
 
-void ATheGoldenAgeChestMonster::ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack)
-{
-	bIsAttacking = bInAttacking;
-	bLoopAttack = bInLoopAttack;
-	bHasAttackSample = false;
-	PushAnimState();
-}
-
-void ATheGoldenAgeChestMonster::GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const
-{
-	bOutAttacking = bIsAttacking;
-	bOutLoopAttack = bLoopAttack;
-}
-
-bool ATheGoldenAgeChestMonster::ShouldReleaseServerOwnership() const
-{
-	return !bIsAttacking;
-}
-
-float ATheGoldenAgeChestMonster::GetFacingTurnRate() const
-{
-	return FacingTurnRate;
-}
-
 void ATheGoldenAgeChestMonster::PushAnimState()
 {
 	USkeletalMeshComponent* MeshComp = GetMesh();
@@ -170,7 +106,7 @@ void ATheGoldenAgeChestMonster::PushAnimState()
 		return;
 	}
 
-	// ABP_ChestMonster owns the clips. Gameplay drives which pose is active and whether the attack loops.
+	// ABP_ChestMonster owns the clips. The server says whether the attack should keep looping.
 	UClass* AnimClass = AnimInstance->GetClass();
 	if (FBoolProperty* IsAttackingProperty = FindFProperty<FBoolProperty>(AnimClass, TEXT("bIsAttacking")))
 	{

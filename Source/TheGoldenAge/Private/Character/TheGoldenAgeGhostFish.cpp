@@ -42,36 +42,13 @@ FAnimNode_SequencePlayer* FindAttackSequencePlayer(UAnimInstance* AnimInstance)
 }
 } // namespace GhostFishAnim
 
-void ATheGoldenAgeGhostFish::HandleNearbyPlayers_Implementation(
-	const TArray<AActor*>& NearbyPlayers, float DeltaSeconds)
+void ATheGoldenAgeGhostFish::UpdatePresentedAnim()
 {
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
 	const FAnimNode_SequencePlayer* AttackPlayer = GhostFishAnim::FindAttackSequencePlayer(AnimInstance);
 
-	if (AActor* ClosestPlayer = FindClosestPlayer(NearbyPlayers))
-	{
-		FacePlayer(ClosestPlayer, DeltaSeconds);
-		bIsAttacking = true;
-		bLoopAttack = true;
-	}
-	else if (bIsAttacking)
-	{
-		// Stop the clip from wrapping into another swing, then leave attack once this cycle is over.
-		bLoopAttack = false;
-		const float PlaybackTime = AttackPlayer ? AttackPlayer->GetCurrentAssetTime() : 0.f;
-		const float PlayLength = AttackPlayer ? AttackPlayer->GetCurrentAssetLength() : 0.f;
-		if (!AttackPlayer || HasCurrentAttackFinished(PlaybackTime, PlayLength))
-		{
-			bIsAttacking = false;
-			bLoopAttack = false;
-		}
-	}
-	else
-	{
-		bIsAttacking = false;
-		bLoopAttack = false;
-	}
+	ApplyAttackState(WantsLoopingAttack(), AttackPlayer);
 
 	if (bIsAttacking && AttackPlayer)
 	{
@@ -86,42 +63,30 @@ void ATheGoldenAgeGhostFish::HandleNearbyPlayers_Implementation(
 	PushAnimState();
 }
 
-AActor* ATheGoldenAgeGhostFish::FindClosestPlayer(const TArray<AActor*>& NearbyPlayers) const
+void ATheGoldenAgeGhostFish::ApplyAttackState(bool bShouldLoop, const FAnimNode_SequencePlayer* AttackPlayer)
 {
-	const FVector Origin = GetActorLocation();
-	AActor* ClosestPlayer = nullptr;
-	float ClosestDistanceSquared = 0.f;
-
-	for (AActor* Player : NearbyPlayers)
+	if (bShouldLoop)
 	{
-		if (!IsValid(Player))
-		{
-			continue;
-		}
-
-		const float DistanceSquared = FVector::DistSquared2D(Origin, Player->GetActorLocation());
-		if (!ClosestPlayer || DistanceSquared < ClosestDistanceSquared)
-		{
-			ClosestDistanceSquared = DistanceSquared;
-			ClosestPlayer = Player;
-		}
-	}
-
-	return ClosestPlayer;
-}
-
-void ATheGoldenAgeGhostFish::FacePlayer(const AActor* Player, float DeltaSeconds)
-{
-	const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
-	if (ToPlayer.SizeSquared2D() <= KINDA_SMALL_NUMBER)
-	{
+		bIsAttacking = true;
+		bLoopAttack = true;
 		return;
 	}
 
-	const FRotator DesiredRotation(0.f, ToPlayer.Rotation().Yaw, 0.f);
-	const FRotator UpdatedRotation = FMath::RInterpConstantTo(
-		GetActorRotation(), DesiredRotation, DeltaSeconds, FacingTurnRate);
-	SetActorRotation(FRotator(0.f, UpdatedRotation.Yaw, 0.f));
+	if (!bIsAttacking)
+	{
+		bLoopAttack = false;
+		return;
+	}
+
+	// Stop the clip from wrapping into another swing, then leave attack once this cycle is over.
+	bLoopAttack = false;
+	const float PlaybackTime = AttackPlayer ? AttackPlayer->GetCurrentAssetTime() : 0.f;
+	const float PlayLength = AttackPlayer ? AttackPlayer->GetCurrentAssetLength() : 0.f;
+	if (!AttackPlayer || HasCurrentAttackFinished(PlaybackTime, PlayLength))
+	{
+		bIsAttacking = false;
+		bLoopAttack = false;
+	}
 }
 
 bool ATheGoldenAgeGhostFish::HasCurrentAttackFinished(float PlaybackTime, float PlayLength) const
@@ -137,30 +102,6 @@ bool ATheGoldenAgeGhostFish::HasCurrentAttackFinished(float PlaybackTime, float 
 	return bReachedEnd || bWrapped;
 }
 
-void ATheGoldenAgeGhostFish::ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack)
-{
-	bIsAttacking = bInAttacking;
-	bLoopAttack = bInLoopAttack;
-	bHasAttackSample = false;
-	PushAnimState();
-}
-
-void ATheGoldenAgeGhostFish::GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const
-{
-	bOutAttacking = bIsAttacking;
-	bOutLoopAttack = bLoopAttack;
-}
-
-bool ATheGoldenAgeGhostFish::ShouldReleaseServerOwnership() const
-{
-	return !bIsAttacking;
-}
-
-float ATheGoldenAgeGhostFish::GetFacingTurnRate() const
-{
-	return FacingTurnRate;
-}
-
 void ATheGoldenAgeGhostFish::PushAnimState()
 {
 	USkeletalMeshComponent* MeshComp = GetMesh();
@@ -170,7 +111,7 @@ void ATheGoldenAgeGhostFish::PushAnimState()
 		return;
 	}
 
-	// ABP_GhostFish owns the clips. Gameplay drives which pose is active and whether the attack loops.
+	// ABP_GhostFish owns the clips. The server says whether the attack should keep looping.
 	UClass* AnimClass = AnimInstance->GetClass();
 	if (FBoolProperty* IsAttackingProperty = FindFProperty<FBoolProperty>(AnimClass, TEXT("bIsAttacking")))
 	{

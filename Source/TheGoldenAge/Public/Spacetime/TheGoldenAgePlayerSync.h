@@ -79,12 +79,6 @@ private:
 	void HandleRoleChoiceCancelled();
 
 	UFUNCTION()
-	void HandleClaimMonster(const FReducerEventContext& Context, uint64 Id);
-
-	UFUNCTION()
-	void HandleReleaseMonster(const FReducerEventContext& Context, uint64 Id);
-
-	UFUNCTION()
 	void HandleLoginReducer(
 		const FReducerEventContext& Context,
 		const FString& Name,

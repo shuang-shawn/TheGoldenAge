@@ -19,19 +19,6 @@ void UMonsterTable::PostInitialize()
     Id = NewObject<UMonsterIdUniqueIndex>(this);
     Id->SetCache(MonsterTable);
 
-    // Register a new multi-key B-Tree index named "owner" on the MonsterTable.
-    MonsterTable->AddMultiKeyBTreeIndex<TTuple<FString>>(
-        TEXT("owner"),
-        [](const FMonsterType& Row)
-        {
-            // This tuple is stored in the B-Tree index for fast composite key lookups.
-            return MakeTuple(Row.Owner);
-        }
-    );
-
-    Owner = NewObject<UMonsterOwnerIndex>(this);
-    Owner->SetCache(MonsterTable);
-
     /***/
 }
 

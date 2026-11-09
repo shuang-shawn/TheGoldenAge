@@ -11,9 +11,9 @@ class ATheGoldenAgeMonster;
 class UDbConnection;
 
 /**
- * Spawns monsters from the public monster table and sends claim, update, and
- * release reducers for the local client. UTheGoldenAgePlayerSync owns the
- * connection and forwards table events here.
+ * Spawns monsters from the public monster table and applies each row.
+ * The server writes those rows. This client does not claim or simulate them.
+ * UTheGoldenAgePlayerSync owns the connection and forwards table events here.
  */
 UCLASS()
 class THEGOLDENAGE_API UTheGoldenAgeMonsterSync : public UWorldSubsystem
@@ -30,14 +30,6 @@ public:
 	void SyncFromConnection();
 	void Reset();
 
-	bool RequestClaim(uint64 MonsterId);
-	bool ReportState(uint64 MonsterId, const FVector& Location, const FRotator& Rotation, bool bAttacking, bool bLoopAttack);
-	bool Release(uint64 MonsterId);
-
-	void NotifyClaimRejected(uint64 MonsterId);
-	void NotifyReleaseRejected(uint64 MonsterId);
-	void NotifyDisconnected();
-
 	UFUNCTION()
 	void HandleMonsterInsert(const FEventContext& Context, const FMonsterType& NewRow);
 
@@ -48,10 +40,8 @@ public:
 	void HandleMonsterDelete(const FEventContext& Context, const FMonsterType& DeletedRow);
 
 private:
-	FString GetLocalUsername() const;
 	void ApplyRow(const FMonsterType& Row);
 	ATheGoldenAgeMonster* EnsureMonster(const FMonsterType& Row);
-	ATheGoldenAgeMonster* FindMonster(uint64 MonsterId) const;
 
 	UPROPERTY()
 	TObjectPtr<UDbConnection> Conn;

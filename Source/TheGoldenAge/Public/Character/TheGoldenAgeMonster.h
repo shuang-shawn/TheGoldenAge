@@ -7,8 +7,8 @@
 #include "TheGoldenAgeMonster.generated.h"
 
 /**
- * Shared monster base. Finds actors tagged Player inside DetectionRange and
- * leaves the response to child classes. Role tags do not affect detection.
+ * Shared monster base. The server decides position, facing, and attack flags.
+ * This actor only renders the subscribed row. Role tags still decide who can see it.
  */
 UCLASS(Abstract)
 class THEGOLDENAGE_API ATheGoldenAgeMonster : public ACharacter
@@ -32,79 +32,42 @@ public:
 
 	/**
 	 * Shows or hides monster-tagged actors for the local viewer.
-	 * A Hero sees Ghost. An Explorer sees Trap. Detection is unchanged.
+	 * A Hero sees Ghost. An Explorer sees Trap.
 	 * Pass the possessed pawn: Possess assigns the controller pawn only after PossessedBy returns.
 	 */
 	static void ApplyLocalViewerVisibility(UWorld* World, const APawn* Viewer = nullptr);
 
-	/** 0 means this actor is local-only and is not stored in the monster table. */
+	/** 0 means this actor is not stored in the monster table. It does not run AI. */
 	uint64 GetMonsterId() const { return MonsterId; }
 
-	/**
-	 * Server monsters are driven by one claiming client. Everyone else turns toward the latest yaw.
-	 * Local-only actors (MonsterId 0) ignore this.
-	 */
+	/** A spawned server monster. Movement stays off; Tick only plays the row. */
 	void InitializeFromServer(uint64 InMonsterId);
-	void ApplyServerState(
-		const FString& OwnerName,
-		const FVector& Location,
-		const FRotator& Rotation,
-		bool bAttacking,
-		bool bLoopAttack,
-		const FString& LocalUsername);
-	void NotifyClaimRejected();
-	void NotifyReleaseRejected();
-	void NotifyDisconnected();
+
+	/** Queues one server sample. Tick renders about 100 ms behind the latest sample. */
+	void ApplyServerState(const FVector& Location, const FRotator& Rotation, bool bAttacking, bool bLoopAttack);
 
 protected:
-	enum class EAuthority : uint8
-	{
-		Passive,
-		Claiming,
-		Owner
-	};
-	/** Horizontal distance from this actor to a player that counts as nearby. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Monster", meta = (ClampMin = "0.0"))
-	float DetectionRange = 500.f;
+	/** True while the latest server row says the attack should keep looping. */
+	bool WantsLoopingAttack() const { return bServerLoopAttack; }
 
 	/**
-	 * Nearby player-tagged actors this frame. Empty when nobody is inside DetectionRange.
-	 * Child classes decide what that means.
+	 * Copies the attack flags onto the Anim Blueprint.
+	 * A falling loop_attack finishes the cycle already playing before idle resumes.
 	 */
-	UFUNCTION(BlueprintNativeEvent, Category = "Monster")
-	void HandleNearbyPlayers(const TArray<AActor*>& NearbyPlayers, float DeltaSeconds);
-	virtual void HandleNearbyPlayers_Implementation(const TArray<AActor*>& NearbyPlayers, float DeltaSeconds);
-
-	/** Child classes copy these onto the Anim Blueprint. Passive monsters use the server values. */
-	virtual void ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack);
-
-	/** Attack and loop flags the owner publishes. Defaults are idle. */
-	virtual void GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const;
-
-	/** Owner drops the claim once nobody is nearby and the attack cycle has finished. */
-	virtual bool ShouldReleaseServerOwnership() const;
-
-	/** Degrees per second used when a remote client turns toward the latest server yaw. */
-	virtual float GetFacingTurnRate() const;
+	virtual void UpdatePresentedAnim();
 
 private:
-	void GatherPlayersInRange(TArray<AActor*>& OutPlayers) const;
-	void ReportOwnedState(float DeltaSeconds);
-	void TryReleaseOwnership(const TArray<AActor*>& NearbyPlayers);
-	void TurnTowardServerYaw(float DeltaSeconds);
+	struct FMonsterSnapshot
+	{
+		FVector Location = FVector::ZeroVector;
+		float Yaw = 0.f;
+		double ReceivedTime = 0.0;
+	};
+
+	void PresentSnapshot();
+	void PushSnapshot(const FVector& Location, float Yaw);
 
 	uint64 MonsterId = 0;
-	EAuthority Authority = EAuthority::Passive;
-	FString ServerOwner;
-	bool bServerAttacking = false;
 	bool bServerLoopAttack = false;
-	bool bReleaseRequested = false;
-	bool bHasReportedServerState = false;
-	float TimeSinceServerReport = 0.f;
-	FVector LastReportedLocation = FVector::ZeroVector;
-	FRotator LastReportedRotation = FRotator::ZeroRotator;
-	bool bLastReportedAttacking = false;
-	bool bLastReportedLoopAttack = false;
-	bool bHasServerFacing = false;
-	float ServerTargetYaw = 0.f;
+	TArray<FMonsterSnapshot> Snapshots;
 };

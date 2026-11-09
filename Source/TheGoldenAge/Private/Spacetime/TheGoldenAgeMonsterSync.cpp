@@ -4,7 +4,6 @@
 
 #include "Character/TheGoldenAgeMonster.h"
 #include "ModuleBindings/SpacetimeDBClient.g.h"
-#include "Spacetime/TheGoldenAgePlayerSync.h"
 
 const TCHAR* UTheGoldenAgeMonsterSync::ChestMonsterClassPath = TEXT("/Game/_Main/Blueprint/BP_ChestMonster.BP_ChestMonster_C");
 const TCHAR* UTheGoldenAgeMonsterSync::GhostFishClassPath = TEXT("/Game/_Main/Blueprint/BP_GhostFish.BP_GhostFish_C");
@@ -53,18 +52,6 @@ void UTheGoldenAgeMonsterSync::SyncFromConnection()
 	}
 }
 
-FString UTheGoldenAgeMonsterSync::GetLocalUsername() const
-{
-	const UWorld* World = GetWorld();
-	const UTheGoldenAgePlayerSync* Players = World ? World->GetSubsystem<UTheGoldenAgePlayerSync>() : nullptr;
-	if (!Players || !Players->IsLoggedIn())
-	{
-		return FString();
-	}
-
-	return Players->GetLocalUsername();
-}
-
 void UTheGoldenAgeMonsterSync::ApplyRow(const FMonsterType& Row)
 {
 	ATheGoldenAgeMonster* Monster = EnsureMonster(Row);
@@ -75,7 +62,7 @@ void UTheGoldenAgeMonsterSync::ApplyRow(const FMonsterType& Row)
 
 	const FVector Location(Row.Position.X, Row.Position.Y, Row.Position.Z);
 	const FRotator Rotation(Row.Rotation.Pitch, Row.Rotation.Yaw, Row.Rotation.Roll);
-	Monster->ApplyServerState(Row.Owner, Location, Rotation, Row.IsAttacking, Row.LoopAttack, GetLocalUsername());
+	Monster->ApplyServerState(Location, Rotation, Row.IsAttacking, Row.LoopAttack);
 }
 
 ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::EnsureMonster(const FMonsterType& Row)
@@ -146,87 +133,6 @@ ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::EnsureMonster(const FMonsterType
 #endif
 	Existing = Spawned;
 	return Spawned;
-}
-
-ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::FindMonster(uint64 MonsterId) const
-{
-	const TWeakObjectPtr<ATheGoldenAgeMonster>* Found = Monsters.Find(MonsterId);
-	return Found ? Found->Get() : nullptr;
-}
-
-bool UTheGoldenAgeMonsterSync::RequestClaim(uint64 MonsterId)
-{
-	if (!Conn || !Conn->Reducers || GetLocalUsername().IsEmpty() || MonsterId == 0)
-	{
-		return false;
-	}
-
-	Conn->Reducers->ClaimMonster(MonsterId);
-	return true;
-}
-
-bool UTheGoldenAgeMonsterSync::ReportState(
-	uint64 MonsterId,
-	const FVector& Location,
-	const FRotator& Rotation,
-	bool bAttacking,
-	bool bLoopAttack)
-{
-	if (!Conn || !Conn->Reducers || GetLocalUsername().IsEmpty() || MonsterId == 0)
-	{
-		return false;
-	}
-
-	FDbVector3Type Position;
-	Position.X = Location.X;
-	Position.Y = Location.Y;
-	Position.Z = Location.Z;
-
-	FDbRotatorType DbRotation;
-	DbRotation.Pitch = Rotation.Pitch;
-	DbRotation.Yaw = Rotation.Yaw;
-	DbRotation.Roll = Rotation.Roll;
-
-	Conn->Reducers->UpdateMonster(MonsterId, Position, DbRotation, bAttacking, bLoopAttack);
-	return true;
-}
-
-bool UTheGoldenAgeMonsterSync::Release(uint64 MonsterId)
-{
-	if (!Conn || !Conn->Reducers || GetLocalUsername().IsEmpty() || MonsterId == 0)
-	{
-		return false;
-	}
-
-	Conn->Reducers->ReleaseMonster(MonsterId);
-	return true;
-}
-
-void UTheGoldenAgeMonsterSync::NotifyClaimRejected(uint64 MonsterId)
-{
-	if (ATheGoldenAgeMonster* Monster = FindMonster(MonsterId))
-	{
-		Monster->NotifyClaimRejected();
-	}
-}
-
-void UTheGoldenAgeMonsterSync::NotifyReleaseRejected(uint64 MonsterId)
-{
-	if (ATheGoldenAgeMonster* Monster = FindMonster(MonsterId))
-	{
-		Monster->NotifyReleaseRejected();
-	}
-}
-
-void UTheGoldenAgeMonsterSync::NotifyDisconnected()
-{
-	for (const TPair<uint64, TWeakObjectPtr<ATheGoldenAgeMonster>>& Pair : Monsters)
-	{
-		if (ATheGoldenAgeMonster* Monster = Pair.Value.Get())
-		{
-			Monster->NotifyDisconnected();
-		}
-	}
 }
 
 void UTheGoldenAgeMonsterSync::HandleMonsterInsert(const FEventContext& Context, const FMonsterType& NewRow)

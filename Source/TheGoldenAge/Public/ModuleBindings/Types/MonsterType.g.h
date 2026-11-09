@@ -33,9 +33,6 @@ struct THEGOLDENAGE_API FMonsterType
     FDbRotatorType Rotation;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
-    FString Owner;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
     bool IsAttacking = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
@@ -46,7 +43,7 @@ struct THEGOLDENAGE_API FMonsterType
 
     FORCEINLINE bool operator==(const FMonsterType& Other) const
     {
-        return Id == Other.Id && Kind == Other.Kind && SpawnPosition == Other.SpawnPosition && SpawnRotation == Other.SpawnRotation && Position == Other.Position && Rotation == Other.Rotation && Owner == Other.Owner && IsAttacking == Other.IsAttacking && LoopAttack == Other.LoopAttack && UpdatedAt == Other.UpdatedAt;
+        return Id == Other.Id && Kind == Other.Kind && SpawnPosition == Other.SpawnPosition && SpawnRotation == Other.SpawnRotation && Position == Other.Position && Rotation == Other.Rotation && IsAttacking == Other.IsAttacking && LoopAttack == Other.LoopAttack && UpdatedAt == Other.UpdatedAt;
     }
 
     FORCEINLINE bool operator!=(const FMonsterType& Other) const
@@ -69,7 +66,6 @@ FORCEINLINE uint32 GetTypeHash(const FMonsterType& MonsterType)
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.SpawnRotation));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.Position));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.Rotation));
-    Hash = HashCombine(Hash, GetTypeHash(MonsterType.Owner));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.IsAttacking));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.LoopAttack));
     Hash = HashCombine(Hash, GetTypeHash(MonsterType.UpdatedAt));
@@ -80,5 +76,5 @@ namespace UE::SpacetimeDB
 {
     UE_SPACETIMEDB_ENABLE_TARRAY(FMonsterType);
 
-    UE_SPACETIMEDB_STRUCT(FMonsterType, Id, Kind, SpawnPosition, SpawnRotation, Position, Rotation, Owner, IsAttacking, LoopAttack, UpdatedAt);
+    UE_SPACETIMEDB_STRUCT(FMonsterType, Id, Kind, SpawnPosition, SpawnRotation, Position, Rotation, IsAttacking, LoopAttack, UpdatedAt);
 }

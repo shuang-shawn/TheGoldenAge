@@ -49,40 +49,6 @@ public:
 };
 /***/
 
-UCLASS(Blueprintable)
-class UMonsterOwnerIndex : public UObject
-{
-    GENERATED_BODY()
-
-public:
-    TArray<FMonsterType> Filter(const FString& Owner) const
-    {
-        TArray<FMonsterType> OutResults;
-
-        LocalCache->FindByMultiKeyBTreeIndex<TTuple<FString>>(
-            OutResults,
-            TEXT("owner"),
-            MakeTuple(Owner)
-        );
-
-        return OutResults;
-    }
-
-    void SetCache(TSharedPtr<FTableCache<FMonsterType>> InCache)
-    {
-        LocalCache = InCache;
-    }
-
-private:
-    UFUNCTION(BlueprintCallable)
-    void FilterOwner(TArray<FMonsterType>& OutResults, const FString& Owner)
-    {
-        OutResults = Filter(Owner);
-    }
-
-    TSharedPtr<FTableCache<FMonsterType>> LocalCache;
-};
-
 UCLASS(BlueprintType)
 class THEGOLDENAGE_API UMonsterTable : public URemoteTable
 {
@@ -91,9 +57,6 @@ class THEGOLDENAGE_API UMonsterTable : public URemoteTable
 public:
     UPROPERTY(BlueprintReadOnly)
     UMonsterIdUniqueIndex* Id;
-
-    UPROPERTY(BlueprintReadOnly)
-    UMonsterOwnerIndex* Owner;
 
     void PostInitialize();
 
