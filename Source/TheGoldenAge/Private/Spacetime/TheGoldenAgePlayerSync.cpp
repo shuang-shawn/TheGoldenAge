@@ -1,5 +1,6 @@
 #include "Spacetime/TheGoldenAgePlayerSync.h"
 
+#include "Character/TheGoldenAgePlayerCharacter.h"
 #include "Connection/Credentials.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
@@ -13,7 +14,8 @@
 
 const TCHAR* UTheGoldenAgePlayerSync::ServerUri = TEXT("https://maincloud.spacetimedb.com");
 const TCHAR* UTheGoldenAgePlayerSync::DatabaseIdentity = TEXT("c2009abca22226b9b908c5d99782eb9da9ffa21e9de7158c7f17a6c84c3d5b13");
-const TCHAR* UTheGoldenAgePlayerSync::PlayerPawnClassPath = TEXT("/Game/RPGHeroSquad/CharacterBP/BP_TinyHeroPolyart.BP_TinyHeroPolyart_C");
+const TCHAR* UTheGoldenAgePlayerSync::HeroPawnClassPath = TEXT("/Game/_Main/Blueprint/BP_Hero.BP_Hero_C");
+const TCHAR* UTheGoldenAgePlayerSync::ExplorerPawnClassPath = TEXT("/Game/_Main/Blueprint/BP_Explorer.BP_Explorer_C");
 
 namespace
 {
@@ -109,24 +111,23 @@ void UTheGoldenAgePlayerSync::InitSpawnAnchorFromLevel()
 		return;
 	}
 
-	UClass* PlayerClass = LoadClass<APawn>(nullptr, PlayerPawnClassPath);
-	if (!PlayerClass)
+	TArray<ATheGoldenAgePlayerCharacter*> PlacedPawns;
+	for (TActorIterator<ATheGoldenAgePlayerCharacter> It(World); It; ++It)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load player pawn class: %s"), PlayerPawnClassPath);
-		return;
+		if (ATheGoldenAgePlayerCharacter* PlacedPawn = *It)
+		{
+			PlacedPawns.Add(PlacedPawn);
+		}
 	}
 
-	for (TActorIterator<APawn> It(World, PlayerClass); It; ++It)
+	for (ATheGoldenAgePlayerCharacter* PlacedPawn : PlacedPawns)
 	{
-		APawn* PlacedPawn = *It;
-		if (!PlacedPawn)
+		if (!bHasSpawnAnchor)
 		{
-			continue;
+			SpawnAnchorLocation = PlacedPawn->GetActorLocation();
+			SpawnAnchorRotation = PlacedPawn->GetActorRotation();
+			bHasSpawnAnchor = true;
 		}
-
-		SpawnAnchorLocation = PlacedPawn->GetActorLocation();
-		SpawnAnchorRotation = PlacedPawn->GetActorRotation();
-		bHasSpawnAnchor = true;
 		PlacedPawn->Destroy();
 	}
 }
@@ -214,6 +215,8 @@ void UTheGoldenAgePlayerSync::ShowLoginWidget()
 		if (LoginWidget)
 		{
 			LoginWidget->OnLoginRequested.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginRequested);
+			LoginWidget->OnRoleChosen.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleRoleChosen);
+			LoginWidget->OnRoleChoiceCancelled.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleRoleChoiceCancelled);
 		}
 	}
 
@@ -250,6 +253,8 @@ void UTheGoldenAgePlayerSync::DismissLoginWidget()
 	for (UTheGoldenAgeLoginWidget* Widget : Widgets)
 	{
 		Widget->OnLoginRequested.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginRequested);
+		Widget->OnRoleChosen.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleRoleChosen);
+		Widget->OnRoleChoiceCancelled.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleRoleChoiceCancelled);
 		Widget->SetVisibility(ESlateVisibility::Collapsed);
 		Widget->RemoveFromParent();
 	}
@@ -380,8 +385,11 @@ void UTheGoldenAgePlayerSync::Disconnect()
 	bConnectionReady = false;
 	bLoggedIn = false;
 	bLoginPending = false;
+	bAwaitingRoleChoice = false;
 	bLocalPossessionReady = false;
 	LocalUsername.Reset();
+	PendingUsername.Reset();
+	PendingPassword.Reset();
 	TimeSinceSync = 0.f;
 }
 
@@ -435,10 +443,13 @@ void UTheGoldenAgePlayerSync::HandleDisconnect(UDbConnection* InConn, const FStr
 	bConnectionReady = false;
 	bLoggedIn = false;
 	bLoginPending = false;
+	bAwaitingRoleChoice = false;
 	bLocalPossessionReady = false;
 	bHasLocalPlayerIdentity = false;
 	LocalPlayerIdentity = FSpacetimeDBIdentity();
 	LocalUsername.Reset();
+	PendingUsername.Reset();
+	PendingPassword.Reset();
 	LastConnectionError = Error;
 
 	ReleaseLocalPossession();
@@ -482,9 +493,29 @@ void UTheGoldenAgePlayerSync::SyncAllPlayersFromCache()
 	}
 }
 
+void UTheGoldenAgePlayerSync::SubmitLogin(const FString& Username, const FString& Password, uint8 Role)
+{
+	// Copy first. Hero/Explorer passes PendingUsername, and the reset below would clear that reference.
+	const FString NameCopy = Username;
+	const FString PasswordCopy = Password;
+	bAwaitingRoleChoice = false;
+	PendingUsername.Reset();
+	PendingPassword.Reset();
+	bLoginPending = true;
+	if (LoginWidget)
+	{
+		LoginWidget->ClearErrorMessage();
+		LoginWidget->SetLoginPending(true);
+		LoginWidget->HideRoleChoice();
+	}
+
+	Conn->Reducers->Login(NameCopy, PasswordCopy, Role);
+}
+
 void UTheGoldenAgePlayerSync::HandleLoginRequested(const FString& Username, const FString& Password)
 {
-	if (!Conn || !Conn->Reducers || bLoginPending || bLoggedIn || !bConnectionReady)
+	if (!Conn || !Conn->Reducers || !Conn->Db || !Conn->Db->Player || !Conn->Db->Player->Name
+		|| bLoginPending || bLoggedIn || !bConnectionReady || bAwaitingRoleChoice)
 	{
 		return;
 	}
@@ -508,22 +539,58 @@ void UTheGoldenAgePlayerSync::HandleLoginRequested(const FString& Username, cons
 		return;
 	}
 
-	bLoginPending = true;
+	const FPlayerType Existing = Conn->Db->Player->Name->Find(Username);
+	if (!Existing.Name.IsEmpty())
+	{
+		SubmitLogin(Username, Password, static_cast<uint8>(ETheGoldenAgePlayerRole::Hero));
+		return;
+	}
+
+	PendingUsername = Username;
+	PendingPassword = Password;
+	bAwaitingRoleChoice = true;
 	if (LoginWidget)
 	{
 		LoginWidget->ClearErrorMessage();
-		LoginWidget->SetLoginPending(true);
+		LoginWidget->ShowRoleChoice();
+	}
+}
+
+void UTheGoldenAgePlayerSync::HandleRoleChosen(uint8 Role)
+{
+	if (!bAwaitingRoleChoice || bLoginPending || bLoggedIn || !Conn || !Conn->Reducers)
+	{
+		return;
 	}
 
-	Conn->Reducers->Login(Username, Password);
+	if (Role != static_cast<uint8>(ETheGoldenAgePlayerRole::Hero)
+		&& Role != static_cast<uint8>(ETheGoldenAgePlayerRole::Explorer))
+	{
+		if (LoginWidget)
+		{
+			LoginWidget->SetErrorMessage(TEXT("Choose Hero or Explorer"));
+		}
+		return;
+	}
+
+	SubmitLogin(PendingUsername, PendingPassword, Role);
+}
+
+void UTheGoldenAgePlayerSync::HandleRoleChoiceCancelled()
+{
+	bAwaitingRoleChoice = false;
+	PendingUsername.Reset();
+	PendingPassword.Reset();
 }
 
 void UTheGoldenAgePlayerSync::HandleLoginReducer(
 	const FReducerEventContext& Context,
 	const FString& Name,
-	const FString& Password)
+	const FString& Password,
+	uint8 Role)
 {
 	(void)Password;
+	(void)Role;
 
 	if (!bLoginPending)
 	{
@@ -545,6 +612,7 @@ void UTheGoldenAgePlayerSync::HandleLoginReducer(
 		if (LoginWidget)
 		{
 			LoginWidget->SetLoginPending(false);
+			LoginWidget->HideRoleChoice();
 			LoginWidget->SetErrorMessage(Error);
 		}
 		return;
@@ -610,9 +678,13 @@ void UTheGoldenAgePlayerSync::HandleReducerError(const FReducerEventContext& Con
 	}
 
 	bLoginPending = false;
+	bAwaitingRoleChoice = false;
+	PendingUsername.Reset();
+	PendingPassword.Reset();
 	if (LoginWidget)
 	{
 		LoginWidget->SetLoginPending(false);
+		LoginWidget->HideRoleChoice();
 		LoginWidget->SetErrorMessage(Error);
 	}
 }
@@ -750,6 +822,13 @@ void UTheGoldenAgePlayerSync::ConfigurePawnPresence(APawn* Pawn, bool bLocallyCo
 	}
 }
 
+const TCHAR* UTheGoldenAgePlayerSync::GetPawnClassPathForRole(uint8 Role) const
+{
+	return Role == static_cast<uint8>(ETheGoldenAgePlayerRole::Explorer)
+		? ExplorerPawnClassPath
+		: HeroPawnClassPath;
+}
+
 APawn* UTheGoldenAgePlayerSync::EnsurePlayerPawn(const FPlayerType& Row)
 {
 	if (Row.Name.IsEmpty() || Row.Identity == FSpacetimeDBIdentity())
@@ -763,17 +842,24 @@ APawn* UTheGoldenAgePlayerSync::EnsurePlayerPawn(const FPlayerType& Row)
 		return nullptr;
 	}
 
+	const TCHAR* PawnClassPath = GetPawnClassPathForRole(Row.Role);
+	UClass* PlayerClass = LoadClass<APawn>(nullptr, PawnClassPath);
+	if (!PlayerClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to load player pawn class: %s"), PawnClassPath);
+		return nullptr;
+	}
+
 	TWeakObjectPtr<APawn>& Existing = PlayerPawns.FindOrAdd(Row.Identity);
 	if (APawn* Pawn = Existing.Get())
 	{
-		return Pawn;
-	}
+		if (Pawn->IsA(PlayerClass))
+		{
+			return Pawn;
+		}
 
-	UClass* PlayerClass = LoadClass<APawn>(nullptr, PlayerPawnClassPath);
-	if (!PlayerClass)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load player pawn class: %s"), PlayerPawnClassPath);
-		return nullptr;
+		Pawn->Destroy();
+		Existing = nullptr;
 	}
 
 	const FVector Location = ResolveSpawnLocation(Row);

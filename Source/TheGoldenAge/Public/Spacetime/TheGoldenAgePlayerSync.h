@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "ModuleBindings/SpacetimeDBClient.g.h"
+#include "Player/TheGoldenAgePlayerRole.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "TheGoldenAgePlayerSync.generated.h"
 
@@ -30,7 +31,8 @@ public:
 
 	static const TCHAR* ServerUri;
 	static const TCHAR* DatabaseIdentity;
-	static const TCHAR* PlayerPawnClassPath;
+	static const TCHAR* HeroPawnClassPath;
+	static const TCHAR* ExplorerPawnClassPath;
 	static constexpr float SyncIntervalSeconds = 0.01f;
 
 	static bool IsValidUsername(const FString& Username, FString& OutError);
@@ -43,6 +45,8 @@ private:
 	void SyncAllPlayersFromCache();
 	void InitSpawnAnchorFromLevel();
 	APawn* EnsurePlayerPawn(const FPlayerType& Row);
+	const TCHAR* GetPawnClassPathForRole(uint8 Role) const;
+	void SubmitLogin(const FString& Username, const FString& Password, uint8 Role);
 	void PossessLocalPlayerPawn();
 	void ReleaseLocalPossession();
 	void ConfigurePawnPresence(APawn* Pawn, bool bLocallyControlled) const;
@@ -66,10 +70,17 @@ private:
 	void HandleLoginRequested(const FString& Username, const FString& Password);
 
 	UFUNCTION()
+	void HandleRoleChosen(uint8 Role);
+
+	UFUNCTION()
+	void HandleRoleChoiceCancelled();
+
+	UFUNCTION()
 	void HandleLoginReducer(
 		const FReducerEventContext& Context,
 		const FString& Name,
-		const FString& Password);
+		const FString& Password,
+		uint8 Role);
 
 	UFUNCTION()
 	void HandleReducerError(const FReducerEventContext& Context, const FString& Error);
@@ -109,10 +120,13 @@ private:
 	bool bConnectionReady = false;
 	bool bLoggedIn = false;
 	bool bLoginPending = false;
+	bool bAwaitingRoleChoice = false;
 	bool bLocalPossessionReady = false;
 	bool bPlayChosen = false;
 	bool bHasSpawnAnchor = false;
 	FString LocalUsername;
+	FString PendingUsername;
+	FString PendingPassword;
 	FString LastConnectionError;
 	float TimeSinceSync = 0.f;
 

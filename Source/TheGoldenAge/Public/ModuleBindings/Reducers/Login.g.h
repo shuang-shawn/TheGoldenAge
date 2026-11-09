@@ -19,16 +19,20 @@ struct THEGOLDENAGE_API FLoginArgs
     UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
     FString Password;
 
+    /** 0 = Hero, 1 = Explorer. Used only when this call creates the player row. */
+    UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
+    uint8 Role = 0;
+
     FLoginArgs() = default;
 
-    FLoginArgs(const FString& InName, const FString& InPassword)
-        : Name(InName), Password(InPassword)
+    FLoginArgs(const FString& InName, const FString& InPassword, uint8 InRole)
+        : Name(InName), Password(InPassword), Role(InRole)
     {}
 
 
     FORCEINLINE bool operator==(const FLoginArgs& Other) const
     {
-        return Name == Other.Name && Password == Other.Password;
+        return Name == Other.Name && Password == Other.Password && Role == Other.Role;
     }
     FORCEINLINE bool operator!=(const FLoginArgs& Other) const
     {
@@ -38,7 +42,7 @@ struct THEGOLDENAGE_API FLoginArgs
 
 namespace UE::SpacetimeDB
 {
-    UE_SPACETIMEDB_STRUCT(FLoginArgs, Name, Password);
+    UE_SPACETIMEDB_STRUCT(FLoginArgs, Name, Password, Role);
 }
 
 // Reducer class for internal dispatching
@@ -52,6 +56,8 @@ public:
     FString Name;
     UPROPERTY(BlueprintReadOnly, Category="SpacetimeDB")
     FString Password;
+    UPROPERTY(BlueprintReadOnly, Category="SpacetimeDB")
+    uint8 Role = 0;
 
 };
 

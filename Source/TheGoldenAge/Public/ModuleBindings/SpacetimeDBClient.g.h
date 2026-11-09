@@ -627,17 +627,18 @@ class THEGOLDENAGE_API URemoteReducers : public UObject
 
 public:
 
-    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
         FLoginHandler,
         const FReducerEventContext&, Context,
         const FString&, Name,
-        const FString&, Password
+        const FString&, Password,
+        uint8, Role
     );
     UPROPERTY(BlueprintAssignable, Category="SpacetimeDB")
     FLoginHandler OnLogin;
 
     UFUNCTION(BlueprintCallable, Category="SpacetimeDB")
-    void Login(const FString& Name, const FString& Password);
+    void Login(const FString& Name, const FString& Password, uint8 Role);
 
     bool InvokeLogin(const FReducerEventContext& Context, const ULoginReducer* Args);
     bool InvokeLoginWithArgs(const FReducerEventContext& Context, const FLoginArgs& Args);

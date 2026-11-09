@@ -6,9 +6,12 @@
 
 class UButton;
 class UEditableTextBox;
+class UHorizontalBox;
 class UTextBlock;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTheGoldenAgeLoginRequested, const FString&, Username, const FString&, Password);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTheGoldenAgeRoleChosen, uint8, Role);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTheGoldenAgeRoleChoiceCancelled);
 
 UCLASS()
 class THEGOLDENAGE_API UTheGoldenAgeLoginWidget : public UUserWidget
@@ -19,10 +22,18 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Spacetime")
 	FOnTheGoldenAgeLoginRequested OnLoginRequested;
 
+	UPROPERTY(BlueprintAssignable, Category = "Spacetime")
+	FOnTheGoldenAgeRoleChosen OnRoleChosen;
+
+	UPROPERTY(BlueprintAssignable, Category = "Spacetime")
+	FOnTheGoldenAgeRoleChoiceCancelled OnRoleChoiceCancelled;
+
 	void SetConnectionReady(bool bReady);
 	void SetLoginPending(bool bPending);
 	void SetErrorMessage(const FString& Message);
 	void ClearErrorMessage();
+	void ShowRoleChoice();
+	void HideRoleChoice();
 
 	UTheGoldenAgeLoginWidget(const FObjectInitializer& ObjectInitializer);
 
@@ -37,6 +48,15 @@ private:
 	UFUNCTION()
 	void HandleLoginClicked();
 
+	UFUNCTION()
+	void HandleHeroClicked();
+
+	UFUNCTION()
+	void HandleExplorerClicked();
+
+	UFUNCTION()
+	void HandleRoleBackClicked();
+
 	UPROPERTY()
 	TObjectPtr<UEditableTextBox> UsernameBox;
 
@@ -47,6 +67,18 @@ private:
 	TObjectPtr<UButton> LoginButton;
 
 	UPROPERTY()
+	TObjectPtr<UHorizontalBox> RoleBox;
+
+	UPROPERTY()
+	TObjectPtr<UButton> HeroButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> ExplorerButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> RoleBackButton;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> ErrorText;
 
 	UPROPERTY()
@@ -54,4 +86,5 @@ private:
 
 	bool bConnectionReady = false;
 	bool bLoginPending = false;
+	bool bChoosingRole = false;
 };

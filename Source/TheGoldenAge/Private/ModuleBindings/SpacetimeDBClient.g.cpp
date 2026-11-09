@@ -60,7 +60,7 @@ void URemoteTables::Initialize()
 	/**/
 }
 
-void URemoteReducers::Login(const FString& Name, const FString& Password)
+void URemoteReducers::Login(const FString& Name, const FString& Password, uint8 Role)
 {
     if (!Conn)
     {
@@ -68,7 +68,7 @@ void URemoteReducers::Login(const FString& Name, const FString& Password)
         return;
     }
 
-	FLoginArgs ReducerArgs(Name, Password);
+	FLoginArgs ReducerArgs(Name, Password, Role);
 	const uint32 RequestId = Conn->CallReducerTyped(TEXT("login"), ReducerArgs);
 	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::Login(ReducerArgs)); }
 }
@@ -87,7 +87,7 @@ bool URemoteReducers::InvokeLogin(const FReducerEventContext& Context, const ULo
         return false;
     }
 
-    OnLogin.Broadcast(Context, Args->Name, Args->Password);
+    OnLogin.Broadcast(Context, Args->Name, Args->Password, Args->Role);
     return true;
 }
 
@@ -102,7 +102,7 @@ bool URemoteReducers::InvokeLoginWithArgs(const FReducerEventContext& Context, c
         return false;
     }
 
-    OnLogin.Broadcast(Context, Args.Name, Args.Password);
+    OnLogin.Broadcast(Context, Args.Name, Args.Password, Args.Role);
     return true;
 }
 

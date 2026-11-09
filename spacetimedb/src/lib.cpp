@@ -45,11 +45,14 @@ struct Player
     DbRotator rotation;
     bool online;
     Timestamp updated_at;
+    // 0 = Hero, 1 = Explorer. Chosen once when the row is created.
+    uint8_t role;
 };
-SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at)
+SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at, role)
 SPACETIMEDB_TABLE(Player, player, Public)
 FIELD_PrimaryKey(player, name)
 FIELD_Unique(player, identity)
+FIELD_Default(player, role, uint8_t{0})
 
 // Private. Which live connection may move which username.
 struct PlayerSession
@@ -216,7 +219,7 @@ SPACETIMEDB_CLIENT_DISCONNECTED(on_disconnect, ReducerContext ctx)
     return Ok();
 }
 
-SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string password)
+SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string password, uint8_t role)
 {
     if (!IsValidUsername(name))
     {
@@ -268,6 +271,11 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         return Ok();
     }
 
+    if (role > 1)
+    {
+        return Err("Choose Hero or Explorer");
+    }
+
     const Identity player_identity_key = AllocatePlayerIdentity(ctx);
     BindConnection(ctx, connection, name);
     ctx.db[account].insert(Account{name, password});
@@ -277,7 +285,8 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         DbVector3{0.f, 0.f, 0.f},
         DbRotator{0.f, 0.f, 0.f},
         true,
-        ctx.timestamp
+        ctx.timestamp,
+        role
     });
     return Ok();
 }
