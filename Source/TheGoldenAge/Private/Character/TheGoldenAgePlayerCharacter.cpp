@@ -864,6 +864,7 @@ void ATheGoldenAgePlayerCharacter::ApplyServerHealth(float NewHealth)
 	{
 		Health->ApplyServerHealth(NewHealth);
 	}
+	BindHealthBar();
 }
 
 bool ATheGoldenAgePlayerCharacter::IsDead() const

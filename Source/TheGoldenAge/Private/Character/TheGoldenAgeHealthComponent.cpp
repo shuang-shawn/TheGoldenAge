@@ -12,9 +12,12 @@ void UTheGoldenAgeHealthComponent::BeginPlay()
 	Super::BeginPlay();
 
 	MaxHealth = FMath::Max(MaxHealth, 1.f);
-	Health = MaxHealth;
-	bIsDead = false;
-	OnHealthChanged.Broadcast(Health, MaxHealth);
+	if (!bServerHealthApplied)
+	{
+		Health = MaxHealth;
+		bIsDead = false;
+		OnHealthChanged.Broadcast(Health, MaxHealth);
+	}
 }
 
 void UTheGoldenAgeHealthComponent::ApplyServerHealth(float NewHealth)
@@ -33,6 +36,7 @@ void UTheGoldenAgeHealthComponent::ApplyServerHealth(float NewHealth)
 	}
 
 	const bool bBecameDead = bNowDead && !bIsDead;
+	bServerHealthApplied = true;
 	Health = Clamped;
 	bIsDead = bNowDead;
 	OnHealthChanged.Broadcast(Health, MaxHealth);

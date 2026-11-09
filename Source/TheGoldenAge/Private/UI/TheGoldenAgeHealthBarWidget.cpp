@@ -51,6 +51,11 @@ void UTheGoldenAgeHealthBarWidget::BuildLayout()
 		BarSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
 		BarSlot->SetOffsets(FMargin(0.f));
 	}
+
+	if (HealthComponent)
+	{
+		HandleHealthChanged(HealthComponent->GetHealth(), HealthComponent->GetMaxHealth());
+	}
 }
 
 void UTheGoldenAgeHealthBarWidget::SetHealthComponent(UTheGoldenAgeHealthComponent* InHealth)

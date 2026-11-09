@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-09 (respawn placement clearance at spawn anchor; agents do not compile; the user runs Live Coding manually after each task)  
+**Last verified against codebase:** 2026-11-09 (health bar sync on login; agents do not compile; the user runs Live Coding manually after each task)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -269,8 +269,8 @@ Config/
 | `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Copies `bIsAttacking` and `bLoopAttack` onto `ABP_ChestMonster`. `loop_attack` true starts the looping attack. `loop_attack` false plays out the current sequence whose name contains `Attack`, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. The server, not this class, turns the Chest Monster. |
 | `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. The only Ghost-tagged monster so far. Same attack-cycle presentation as the Chest Monster, copied onto `ABP_GhostFish`. It does not pathfind. The server moves and turns it. |
 | `UTheGoldenAgeMonsterSync` | World subsystem. Spawns `BP_ChestMonster` (`kind` 0) or `BP_GhostFish` (`kind` 1) from the `monster` table and applies each row, including `health`. `RequestMonsterDamage` calls `damage_monster`. `RequestMonsterAttackPlayer` calls `monster_attack_player`. `UTheGoldenAgePlayerSync` owns the connection and forwards table events. |
-| `UTheGoldenAgeHealthComponent` | Renders server-owned health on players and monsters. `MaxHealth` default 100 is the display cap. `ApplyServerHealth` copies the row. Health at or below 0 sets `bIsDead` once and broadcasts `OnDied`. The component does not write the row. |
-| `UTheGoldenAgeHealthBarWidget` | Horizontal bar built in C++. Green above half, yellow above 25%, red at or below 25%. Bound to the owner's health component. |
+| `UTheGoldenAgeHealthComponent` | Renders server-owned health on players and monsters. `MaxHealth` default 100 is the display cap. `ApplyServerHealth` copies the row and skips the BeginPlay full-health default when server data arrived first. Health at or below 0 sets `bIsDead` once and broadcasts `OnDied`. The component does not write the row. |
+| `UTheGoldenAgeHealthBarWidget` | Horizontal bar built in C++. Green above half, yellow above 25%, red at or below 25%. Bound to the owner's health component; after the C++ layout builds it reapplies the current component health so login/spawn does not leave a stale 100% fill. |
 
 **Blueprints / content:**
 
@@ -625,6 +625,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Health bar reflects server health on login
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `UTheGoldenAgeHealthBarWidget` reapplies the bound component when its C++ progress bar is created. `UTheGoldenAgeHealthComponent` does not reset to full health on `BeginPlay` after `ApplyServerHealth`. Player and monster pawns re-bind the widget after each server health copy. |
+| **Files / systems** | `TheGoldenAgeHealthBarWidget.cpp`, `TheGoldenAgeHealthComponent.h/.cpp`, `TheGoldenAgePlayerCharacter.cpp`, `TheGoldenAgeMonster.cpp`. |
+| **Reason** | On login/spawn the widget often built at 100% before server health was applied, and `OnHealthChanged` ran while the progress bar did not exist yet. |
+| **Follow-up** | Live Coding. Log in on an account whose `player.health` is below 100 (e.g. `DamageLocalPlayer` on a prior session); the foot bar should match the server value immediately and on later `player` updates. |
 
 ### 2026-11-09 — Clear spawn placement when anchor is blocked
 

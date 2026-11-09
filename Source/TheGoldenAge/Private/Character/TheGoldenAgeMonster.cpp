@@ -232,6 +232,7 @@ void ATheGoldenAgeMonster::ApplyServerHealth(float NewHealth)
 	{
 		Health->ApplyServerHealth(NewHealth);
 	}
+	BindHealthBar();
 }
 
 bool ATheGoldenAgeMonster::IsDead() const

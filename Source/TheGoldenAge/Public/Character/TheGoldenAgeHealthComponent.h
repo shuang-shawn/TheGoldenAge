@@ -54,4 +54,6 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health", meta = (AllowPrivateAccess = "true"))
 	bool bIsDead = false;
+
+	bool bServerHealthApplied = false;
 };
