@@ -33,6 +33,9 @@ public:
 	/** Calls damage_monster for a server row id. Requires login. */
 	void RequestMonsterDamage(uint64 MonsterId, float Amount);
 
+	/** Validates a monster swing against the caller and applies monster.attack_damage on the server. */
+	void RequestMonsterAttackPlayer(uint64 MonsterId);
+
 	UFUNCTION()
 	void HandleMonsterInsert(const FEventContext& Context, const FMonsterType& NewRow);
 

@@ -64,6 +64,12 @@ public:
 	/** Renders the latest queued sample immediately (used right after respawn). */
 	void FlushPresentedTransform();
 
+	/**
+	 * Once per attack cycle, overlaps local player pawns at MonsterAttackHitTimeNormalized
+	 * and asks the server to apply that monster row's attack_damage.
+	 */
+	void TryMonsterAttackHit(float AttackPlaybackTime, float AttackPlayLength);
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
 	TObjectPtr<UTheGoldenAgeHealthComponent> Health;
@@ -84,6 +90,22 @@ protected:
 	 * A falling loop_attack finishes the cycle already playing before idle resumes.
 	 */
 	virtual void UpdatePresentedAnim();
+
+	/** Forward reach of the attack overlap from the capsule center (cm). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0"))
+	float MonsterAttackReach = 110.f;
+
+	/** Radius of the attack overlap sphere (cm). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0"))
+	float MonsterAttackRadius = 95.f;
+
+	/** Normalized time in the attack clip when hit detection runs once per cycle (0–1). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MonsterAttackHitTimeNormalized = 0.35f;
+
+	float MonsterAttackHitSampleTime = 0.f;
+	bool bHasMonsterAttackHitSample = false;
+	bool bMonsterAttackHitApplied = false;
 
 private:
 	struct FMonsterSnapshot

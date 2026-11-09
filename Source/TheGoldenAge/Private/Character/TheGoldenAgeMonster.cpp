@@ -4,7 +4,9 @@
 
 #include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgePlayerCharacter.h"
+#include "Spacetime/TheGoldenAgeMonsterSync.h"
 #include "Components/WidgetComponent.h"
+#include "Engine/OverlapResult.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -21,6 +23,7 @@ namespace
 constexpr double RenderDelaySeconds = 0.1;
 constexpr float RenderSnapDistance = 500.f;
 constexpr int32 MaxSnapshots = 32;
+constexpr float AttackEndToleranceSeconds = 0.001f;
 }
 
 ATheGoldenAgeMonster::ATheGoldenAgeMonster()
@@ -278,6 +281,89 @@ void ATheGoldenAgeMonster::HandleDied()
 void ATheGoldenAgeMonster::HandleRespawned()
 {
 	Snapshots.Empty();
+	bMonsterAttackHitApplied = false;
+	bHasMonsterAttackHitSample = false;
+	MonsterAttackHitSampleTime = 0.f;
+}
+
+void ATheGoldenAgeMonster::TryMonsterAttackHit(float AttackPlaybackTime, float AttackPlayLength)
+{
+	if (MonsterId == 0 || IsDead() || MonsterAttackRadius <= 0.f)
+	{
+		return;
+	}
+
+	if (bHasMonsterAttackHitSample && AttackPlaybackTime + AttackEndToleranceSeconds < MonsterAttackHitSampleTime)
+	{
+		bMonsterAttackHitApplied = false;
+	}
+	MonsterAttackHitSampleTime = AttackPlaybackTime;
+	bHasMonsterAttackHitSample = true;
+
+	if (bMonsterAttackHitApplied)
+	{
+		return;
+	}
+
+	if (AttackPlayLength <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const float HitTime = AttackPlayLength * MonsterAttackHitTimeNormalized;
+	if (AttackPlaybackTime + AttackEndToleranceSeconds < HitTime)
+	{
+		return;
+	}
+
+	bMonsterAttackHitApplied = true;
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UTheGoldenAgeMonsterSync* MonsterSync = World->GetSubsystem<UTheGoldenAgeMonsterSync>();
+	if (!MonsterSync)
+	{
+		return;
+	}
+
+	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+	if (Forward.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector Origin = GetActorLocation() + Forward * MonsterAttackReach;
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MonsterAttackOverlap), false, this);
+	QueryParams.AddIgnoredActor(this);
+
+	TArray<FOverlapResult> Overlaps;
+	if (!World->OverlapMultiByChannel(
+		Overlaps,
+		Origin,
+		FQuat::Identity,
+		ECC_Pawn,
+		FCollisionShape::MakeSphere(MonsterAttackRadius),
+		QueryParams))
+	{
+		return;
+	}
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		ATheGoldenAgePlayerCharacter* Player = Cast<ATheGoldenAgePlayerCharacter>(Overlap.GetActor());
+		if (!Player || !Player->IsLocallyControlled() || Player->IsDead())
+		{
+			continue;
+		}
+
+		MonsterSync->RequestMonsterAttackPlayer(MonsterId);
+		break;
+	}
 }
 
 void ATheGoldenAgeMonster::FlushPresentedTransform()

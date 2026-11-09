@@ -853,6 +853,11 @@ void ATheGoldenAgePlayerCharacter::ApplyDamage(float Amount)
 	}
 }
 
+void ATheGoldenAgePlayerCharacter::SetSpacetimePlayerName(const FString& Name)
+{
+	SpacetimePlayerName = Name;
+}
+
 void ATheGoldenAgePlayerCharacter::ApplyServerHealth(float NewHealth)
 {
 	if (Health)

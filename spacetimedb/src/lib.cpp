@@ -94,6 +94,8 @@ struct Monster
     // Horizontal detection and attack reach in centimeters. Zero uses the kind seed default.
     float detection_range;
     float attack_range;
+    // Hit points removed from a player on a validated attack hit. Zero uses kDefaultMonsterAttackDamage.
+    float attack_damage;
 };
 SPACETIMEDB_STRUCT(
     Monster,
@@ -108,12 +110,24 @@ SPACETIMEDB_STRUCT(
     health,
     updated_at,
     detection_range,
-    attack_range)
+    attack_range,
+    attack_damage)
 SPACETIMEDB_TABLE(Monster, monster, Public)
 FIELD_PrimaryKeyAutoInc(monster, id)
 FIELD_Default(monster, health, 100.f)
 FIELD_Default(monster, detection_range, 0.f)
 FIELD_Default(monster, attack_range, 0.f)
+FIELD_Default(monster, attack_damage, 15.f)
+
+// Private. Debounces monster_attack_player from overlapping clients.
+struct MonsterAttackHitCooldown
+{
+    std::string cooldown_key;
+    Timestamp last_hit_at;
+};
+SPACETIMEDB_STRUCT(MonsterAttackHitCooldown, cooldown_key, last_hit_at)
+SPACETIMEDB_TABLE(MonsterAttackHitCooldown, monster_attack_hit_cooldown, Private)
+FIELD_PrimaryKey(monster_attack_hit_cooldown, cooldown_key)
 
 // Private. One interval row keeps monster_tick running. Clients never subscribe to it.
 struct MonsterTickTimer
@@ -155,8 +169,13 @@ namespace
 constexpr size_t kMaxUsernameLength = 24;
 constexpr float kPlayerMaxHealth = 100.f;
 constexpr float kMonsterMaxHealth = 100.f;
+constexpr float kDefaultMonsterAttackDamage = 15.f;
+constexpr float kMonsterHitRangeSlack = 100.f;
+constexpr int64_t kMonsterAttackHitCooldownMillis = 400;
 constexpr int64_t kPlayerRespawnDelayMillis = 1000;
 constexpr int64_t kMonsterRespawnDelayMillis = 1000;
+
+void SchedulePlayerRespawn(ReducerContext& ctx, const Player& PlayerRow);
 
 bool IsValidUsername(const std::string& Name)
 {
@@ -346,6 +365,16 @@ float EffectiveAttackRange(const Monster& Row)
     return ConfigForKind(Row.kind).AttackRange;
 }
 
+float EffectiveAttackDamage(const Monster& Row)
+{
+    if (Row.attack_damage > 0.f)
+    {
+        return Row.attack_damage;
+    }
+
+    return kDefaultMonsterAttackDamage;
+}
+
 Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotation, Timestamp UpdatedAt)
 {
     const MonsterKindConfig Defaults = ConfigForKind(Kind);
@@ -361,8 +390,65 @@ Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotat
         kMonsterMaxHealth,
         UpdatedAt,
         Defaults.DetectionRange,
-        Defaults.AttackRange
+        Defaults.AttackRange,
+        kDefaultMonsterAttackDamage
     };
+}
+
+std::string MonsterHitCooldownKey(uint64_t MonsterId, const std::string& PlayerName)
+{
+    return std::to_string(MonsterId) + ":" + PlayerName;
+}
+
+bool IsMonsterAttackHitOnCooldown(ReducerContext& ctx, uint64_t MonsterId, const std::string& PlayerName)
+{
+    const std::string Key = MonsterHitCooldownKey(MonsterId, PlayerName);
+    if (auto Row = ctx.db[monster_attack_hit_cooldown_cooldown_key].find(Key))
+    {
+        const TimeDuration Since = ctx.timestamp.duration_since(Row->last_hit_at);
+        if (Since.millis() < kMonsterAttackHitCooldownMillis)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void RecordMonsterAttackHit(ReducerContext& ctx, uint64_t MonsterId, const std::string& PlayerName)
+{
+    const std::string Key = MonsterHitCooldownKey(MonsterId, PlayerName);
+    const MonsterAttackHitCooldown Row{Key, ctx.timestamp};
+    if (auto Existing = ctx.db[monster_attack_hit_cooldown_cooldown_key].find(Key))
+    {
+        *Existing = Row;
+        ctx.db[monster_attack_hit_cooldown_cooldown_key].update(*Existing);
+    }
+    else
+    {
+        ctx.db[monster_attack_hit_cooldown].insert(Row);
+    }
+}
+
+void ApplyDamageToPlayerRow(ReducerContext& ctx, Player& PlayerRow, float Amount)
+{
+    if (PlayerRow.health <= 0.f)
+    {
+        return;
+    }
+
+    const float NextHealth = PlayerRow.health - Amount;
+    PlayerRow.health = NextHealth > 0.f ? NextHealth : 0.f;
+    if (PlayerRow.health <= 0.f)
+    {
+        PlayerRow.is_attacking = false;
+    }
+    PlayerRow.updated_at = ctx.timestamp;
+    ctx.db[player_name].update(PlayerRow);
+    if (PlayerRow.health <= 0.f)
+    {
+        SchedulePlayerRespawn(ctx, PlayerRow);
+    }
 }
 
 float DeltaDegrees(float From, float To)
@@ -791,6 +877,64 @@ SPACETIMEDB_REDUCER(damage_player, ReducerContext ctx, float amount)
     {
         SchedulePlayerRespawn(ctx, *PlayerRow);
     }
+    return Ok();
+}
+
+// Local client calls after a pawn overlap at the attack hit frame. The server checks range and cooldown.
+SPACETIMEDB_REDUCER(monster_attack_player, ReducerContext ctx, uint64_t target_monster_id)
+{
+    if (!ctx.connection_id)
+    {
+        return Err("Not logged in");
+    }
+
+    const auto Session = ctx.db[player_session_connection_id].find(*ctx.connection_id);
+    if (!Session)
+    {
+        return Err("Not logged in");
+    }
+
+    if (target_monster_id == 0)
+    {
+        return Err("Invalid monster");
+    }
+
+    auto MonsterRow = ctx.db[monster_id].find(target_monster_id);
+    if (!MonsterRow || MonsterRow->health <= 0.f)
+    {
+        return Ok();
+    }
+
+    if (!MonsterRow->is_attacking)
+    {
+        return Err("Monster is not attacking");
+    }
+
+    auto PlayerRow = ctx.db[player_name].find(Session->name);
+    if (!PlayerRow || !PlayerRow->online)
+    {
+        return Err("Not logged in");
+    }
+
+    if (PlayerRow->health <= 0.f)
+    {
+        return Ok();
+    }
+
+    const float Range = EffectiveAttackRange(*MonsterRow) + kMonsterHitRangeSlack;
+    const float DistanceSquared = HorizontalDistanceSquared(MonsterRow->position, PlayerRow->position);
+    if (DistanceSquared > Range * Range)
+    {
+        return Err("Out of range");
+    }
+
+    if (IsMonsterAttackHitOnCooldown(ctx, target_monster_id, Session->name))
+    {
+        return Ok();
+    }
+
+    RecordMonsterAttackHit(ctx, target_monster_id, Session->name);
+    ApplyDamageToPlayerRow(ctx, *PlayerRow, EffectiveAttackDamage(*MonsterRow));
     return Ok();
 }
 

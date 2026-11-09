@@ -9,8 +9,11 @@
 #include "ModuleBindings/Tables/PlayerTable.g.h"
 #include "UI/TheGoldenAgeLoginWidget.h"
 #include "UI/TheGoldenAgePlayMenuWidget.h"
+#include "Components/CapsuleComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Character.h"
 #include "UObject/UObjectIterator.h"
 
 const TCHAR* UTheGoldenAgePlayerSync::ServerUri = TEXT("https://maincloud.spacetimedb.com");
@@ -23,7 +26,117 @@ namespace
 constexpr float SpawnTransformEpsilon = 1.f;
 constexpr int32 LoginViewportZOrder = 100;
 constexpr int32 PlayMenuViewportZOrder = 80;
+constexpr float SpawnClearanceRingStepCm = 55.f;
+constexpr int32 SpawnClearanceAnglesPerRing = 12;
+constexpr int32 SpawnClearanceMaxRings = 10;
+
+void GetPawnCapsuleSize(const APawn* Pawn, float& OutRadius, float& OutHalfHeight)
+{
+	OutRadius = 42.f;
+	OutHalfHeight = 96.f;
+	if (!Pawn)
+	{
+		return;
+	}
+
+	if (const UCapsuleComponent* Capsule = Pawn->FindComponentByClass<UCapsuleComponent>())
+	{
+		OutRadius = Capsule->GetScaledCapsuleRadius();
+		OutHalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	}
 }
+
+bool IsCapsulePlacementClear(
+	const UWorld* World,
+	const FVector& Location,
+	float Radius,
+	float HalfHeight,
+	const AActor* IgnoreActor)
+{
+	if (!World)
+	{
+		return false;
+	}
+
+	const FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(PlayerSpawnClearance), false, IgnoreActor);
+
+	if (World->OverlapBlockingTestByChannel(Location, FQuat::Identity, ECC_WorldStatic, CapsuleShape, Params))
+	{
+		return false;
+	}
+
+	if (World->OverlapBlockingTestByChannel(Location, FQuat::Identity, ECC_WorldDynamic, CapsuleShape, Params))
+	{
+		return false;
+	}
+
+	FCollisionObjectQueryParams ObjectParams;
+	ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
+	TArray<FOverlapResult> Overlaps;
+	if (!World->OverlapMultiByObjectType(
+		Overlaps,
+		Location,
+		FQuat::Identity,
+		ObjectParams,
+		CapsuleShape,
+		Params))
+	{
+		return true;
+	}
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		const AActor* Other = Overlap.GetActor();
+		if (!Other || Other == IgnoreActor)
+		{
+			continue;
+		}
+
+		if (Overlap.bBlockingHit)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool FindClearLocationNear(
+	const UWorld* World,
+	const FVector& Origin,
+	float Radius,
+	float HalfHeight,
+	const AActor* IgnoreActor,
+	FVector& OutLocation)
+{
+	if (IsCapsulePlacementClear(World, Origin, Radius, HalfHeight, IgnoreActor))
+	{
+		OutLocation = Origin;
+		return true;
+	}
+
+	for (int32 Ring = 1; Ring <= SpawnClearanceMaxRings; ++Ring)
+	{
+		const float Distance = SpawnClearanceRingStepCm * static_cast<float>(Ring);
+		for (int32 AngleIndex = 0; AngleIndex < SpawnClearanceAnglesPerRing; ++AngleIndex)
+		{
+			const float Angle =
+				(2.f * PI * static_cast<float>(AngleIndex)) / static_cast<float>(SpawnClearanceAnglesPerRing);
+			const FVector Offset(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.f);
+			const FVector TestLocation = Origin + Offset;
+			if (IsCapsulePlacementClear(World, TestLocation, Radius, HalfHeight, IgnoreActor))
+			{
+				OutLocation = TestLocation;
+				return true;
+			}
+		}
+	}
+
+	OutLocation = Origin;
+	return false;
+}
+} // namespace
 
 bool UTheGoldenAgePlayerSync::IsValidUsername(const FString& Username, FString& OutError)
 {
@@ -670,15 +783,15 @@ void UTheGoldenAgePlayerSync::HandleLoginReducer(
 
 	if (APawn* LocalPawn = GetLocalPawn())
 	{
-		const FVector Location = ResolveSpawnLocation(PlayerRow);
+		const FVector Location = ResolvePlacementLocation(PlayerRow, LocalPawn);
 		const FRotator Rotation = ResolveSpawnRotation(PlayerRow);
-		LocalPawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+		LocalPawn->TeleportTo(Location, Rotation);
 	}
 	else if (APawn* EnsuredPawn = EnsurePlayerPawn(PlayerRow))
 	{
-		const FVector Location = ResolveSpawnLocation(PlayerRow);
+		const FVector Location = ResolvePlacementLocation(PlayerRow, EnsuredPawn);
 		const FRotator Rotation = ResolveSpawnRotation(PlayerRow);
-		EnsuredPawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+		EnsuredPawn->TeleportTo(Location, Rotation);
 	}
 
 	const bool bNeedsInitialPublish = IsUnsetSpawnTransform(PlayerRow);
@@ -842,6 +955,29 @@ FVector UTheGoldenAgePlayerSync::ResolveSpawnLocation(const FPlayerType& Row) co
 	return FVector(Row.Position.X, Row.Position.Y, Row.Position.Z);
 }
 
+FVector UTheGoldenAgePlayerSync::ResolvePlacementLocation(const FPlayerType& Row, const APawn* Pawn) const
+{
+	const FVector Desired = ResolveSpawnLocation(Row);
+	if (!IsUnsetSpawnTransform(Row) || !bHasSpawnAnchor)
+	{
+		return Desired;
+	}
+
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return Desired;
+	}
+
+	float Radius = 0.f;
+	float HalfHeight = 0.f;
+	GetPawnCapsuleSize(Pawn, Radius, HalfHeight);
+
+	FVector ClearLocation = Desired;
+	FindClearLocationNear(World, Desired, Radius, HalfHeight, Pawn, ClearLocation);
+	return ClearLocation;
+}
+
 FRotator UTheGoldenAgePlayerSync::ResolveSpawnRotation(const FPlayerType& Row) const
 {
 	if (IsUnsetSpawnTransform(Row) && bHasSpawnAnchor)
@@ -936,7 +1072,19 @@ APawn* UTheGoldenAgePlayerSync::EnsurePlayerPawn(const FPlayerType& Row)
 		Existing = nullptr;
 	}
 
-	const FVector Location = ResolveSpawnLocation(Row);
+	float CapsuleRadius = 42.f;
+	float CapsuleHalfHeight = 96.f;
+	if (const ACharacter* CharacterCDO = Cast<ACharacter>(PlayerClass->GetDefaultObject()))
+	{
+		GetPawnCapsuleSize(CharacterCDO, CapsuleRadius, CapsuleHalfHeight);
+	}
+
+	FVector Location = ResolveSpawnLocation(Row);
+	if (IsUnsetSpawnTransform(Row) && bHasSpawnAnchor)
+	{
+		FindClearLocationNear(World, Location, CapsuleRadius, CapsuleHalfHeight, nullptr, Location);
+	}
+
 	const FRotator Rotation = ResolveSpawnRotation(Row);
 
 	FActorSpawnParameters Params;
@@ -1027,6 +1175,7 @@ void UTheGoldenAgePlayerSync::ApplyPlayerRow(const FPlayerType& Row)
 	const bool bWasDead = PlayerCharacter && PlayerCharacter->IsDead();
 	if (PlayerCharacter)
 	{
+		PlayerCharacter->SetSpacetimePlayerName(Row.Name);
 		PlayerCharacter->ApplyServerHealth(Row.Health);
 		if (!IsLocalPlayerRow(Row) || !bLocalPossessionReady || GetLocalPawn() != Pawn)
 		{
@@ -1041,12 +1190,16 @@ void UTheGoldenAgePlayerSync::ApplyPlayerRow(const FPlayerType& Row)
 		return;
 	}
 
-	const FVector Location = ResolveSpawnLocation(Row);
+	const FVector Location = ResolvePlacementLocation(Row, Pawn);
 	const FRotator Rotation = ResolveSpawnRotation(Row);
-	Pawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+	Pawn->TeleportTo(Location, Rotation);
 	if (bRespawned)
 	{
 		PlayerCharacter->HandleRespawned();
+		if (IsLocalPlayerRow(Row) && bLocalPossessionReady)
+		{
+			SendLocalTransform();
+		}
 	}
 
 	if (bClaimLocal && !bLocalPossessionReady)

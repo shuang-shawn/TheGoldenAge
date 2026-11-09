@@ -81,8 +81,11 @@ void ATheGoldenAgeChestMonster::UpdatePresentedAnim()
 
 	if (bIsAttacking && AttackPlayer)
 	{
-		AttackSampleTime = AttackPlayer->GetCurrentAssetTime();
+		const float PlaybackTime = AttackPlayer->GetCurrentAssetTime();
+		const float PlayLength = AttackPlayer->GetCurrentAssetLength();
+		AttackSampleTime = PlaybackTime;
 		bHasAttackSample = true;
+		TryMonsterAttackHit(PlaybackTime, PlayLength);
 	}
 	else
 	{

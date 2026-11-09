@@ -85,6 +85,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	bool IsDead() const;
 
+	/** SpacetimeDB username for this pawn. Set when the player row is applied. */
+	void SetSpacetimePlayerName(const FString& Name);
+	const FString& GetSpacetimePlayerName() const { return SpacetimePlayerName; }
+
 	/** True while the Hero attack clip is playing (replicated via player.is_attacking). */
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	bool IsAttackingForReplication() const { return bIsAttacking; }
@@ -221,4 +225,6 @@ protected:
 	float AttackSampleTime = 0.f;
 	bool bHasAttackSample = false;
 	bool bHeroAttackHitApplied = false;
+
+	FString SpacetimePlayerName;
 };

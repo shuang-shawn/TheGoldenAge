@@ -248,6 +248,52 @@ bool URemoteReducers::InvokeLoginWithArgs(const FReducerEventContext& Context, c
     return true;
 }
 
+void URemoteReducers::MonsterAttackPlayer(const uint64 TargetMonsterId)
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FMonsterAttackPlayerArgs ReducerArgs(TargetMonsterId);
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("monster_attack_player"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::MonsterAttackPlayer(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeMonsterAttackPlayer(const FReducerEventContext& Context, const UMonsterAttackPlayerReducer* Args)
+{
+    if (!OnMonsterAttackPlayer.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for MonsterAttackPlayer"));
+        }
+        return false;
+    }
+
+    OnMonsterAttackPlayer.Broadcast(Context, Args->TargetMonsterId);
+    return true;
+}
+
+bool URemoteReducers::InvokeMonsterAttackPlayerWithArgs(const FReducerEventContext& Context, const FMonsterAttackPlayerArgs& Args)
+{
+    if (!OnMonsterAttackPlayer.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for MonsterAttackPlayer"));
+        }
+        return false;
+    }
+
+    OnMonsterAttackPlayer.Broadcast(Context, Args.TargetMonsterId);
+    return true;
+}
+
 void URemoteReducers::SeedMonsters()
 {
     if (!Conn)
@@ -449,6 +495,12 @@ void UDbConnection::ReducerEvent(const FReducerEvent& Event)
     {
         FLoginArgs Args = ReducerEvent.Reducer.GetAsLogin();
         Reducers->InvokeLoginWithArgs(Context, Args);
+        return;
+    }
+    if (ReducerName == TEXT("monster_attack_player"))
+    {
+        FMonsterAttackPlayerArgs Args = ReducerEvent.Reducer.GetAsMonsterAttackPlayer();
+        Reducers->InvokeMonsterAttackPlayerWithArgs(Context, Args);
         return;
     }
     if (ReducerName == TEXT("seed_monsters"))

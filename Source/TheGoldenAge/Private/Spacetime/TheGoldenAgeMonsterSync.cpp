@@ -35,6 +35,16 @@ void UTheGoldenAgeMonsterSync::RequestMonsterDamage(uint64 MonsterId, float Amou
 	Conn->Reducers->DamageMonster(MonsterId, Amount);
 }
 
+void UTheGoldenAgeMonsterSync::RequestMonsterAttackPlayer(uint64 MonsterId)
+{
+	if (!Conn || !Conn->Reducers || MonsterId == 0)
+	{
+		return;
+	}
+
+	Conn->Reducers->MonsterAttackPlayer(MonsterId);
+}
+
 void UTheGoldenAgeMonsterSync::Reset()
 {
 	for (TPair<uint64, TWeakObjectPtr<ATheGoldenAgeMonster>>& Pair : Monsters)

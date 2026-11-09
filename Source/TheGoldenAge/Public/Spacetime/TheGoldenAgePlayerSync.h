@@ -63,6 +63,8 @@ private:
 	bool IsLocalPlayerRow(const FPlayerType& Row) const;
 	bool IsUnsetSpawnTransform(const FPlayerType& Row) const;
 	FVector ResolveSpawnLocation(const FPlayerType& Row) const;
+	/** Spawn anchor plus a nearby clear capsule spot when the anchor overlaps blockers. */
+	FVector ResolvePlacementLocation(const FPlayerType& Row, const APawn* Pawn) const;
 	FRotator ResolveSpawnRotation(const FPlayerType& Row) const;
 	void DestroyAllPlayerPawns();
 
