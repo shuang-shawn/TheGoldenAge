@@ -1,6 +1,18 @@
 # Visual Studio 2015 user specific files
 .vs/
 
+# JetBrains Rider / VS Code / OS junk
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local AI agent / MCP config (machine-specific; not part of the game project)
+.cursor/
+.codex/
+.gemini/
+.mcp.json
+
 # Compiled Object files
 *.slo
 *.lo

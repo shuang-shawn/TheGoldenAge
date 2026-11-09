@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-08  
+**Last verified against codebase:** 2026-11-08 (Git LFS & ignore rules)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -77,7 +77,7 @@ This file is the **authoritative shared reference** for project state. It is not
 | **unreal-mcp** (external HTTP server) | IDE MCP integration (`http://127.0.0.1:8000/mcp`) | Config in local untracked files (`.cursor/mcp.json`, etc.) — **not part of game runtime** |
 | OnlineSubsystem / Steam | Commented in `Build.cs`; not enabled in `.uproject` | Not in use |
 | CommonUI | Console variables in `DefaultGame.ini` | **Plugin not listed in `.uproject`** — likely template residue; **intent unverified** |
-| Git | Version control | Yes — one commit on `main`, **no remote configured** |
+| Git + **Git LFS** | Version control; binary assets via LFS (`git-lfs` 3.3.0 verified) | Remote: `origin` → `https://github.com/shuang-shawn/TheGoldenAge.git` |
 
 ---
 
@@ -94,6 +94,8 @@ TheGoldenAge.uproject
 Content/_Main/
     └── Lvl_Main (game & editor default map)
     └── Lvl_M (small map; purpose unverified)
+Content/RPGHeroSquad/
+    └── Fab/third-party hero squad assets (animations, etc.) — **untracked locally until committed via LFS**
 Config/
     └── Engine, game, input defaults
 ```
@@ -122,7 +124,9 @@ Config/
 
 **Blueprints:**
 
-- **No `.uasset` files** under `Content/` in the repository. `Lvl_Main.umap` contains engine actors only (lighting, `PlayerStart`, template floor, sky sphere), per static analysis of the map asset.
+- **Tracked in Git (HEAD):** maps only (`Content/_Main/*.umap`). `Lvl_Main` is a template-lit greybox (lighting, `PlayerStart`, floor).
+- **Local / untracked (2026-11-08):** `Content/RPGHeroSquad/` — ~126 `.uasset` files (~64 MiB on disk). **Not yet in remote** until committed with LFS.
+- **Must use LFS** when adding: all `.uasset` / `.umap` per `.gitattributes`.
 
 ### Communication between components
 
@@ -152,7 +156,9 @@ Config/
 | `TheGoldenAge.uproject` | Project definition, modules, enabled plugins |
 | `Source/` | C++ game module and UBT target files |
 | `Config/` | Default engine, game, input, editor settings |
-| `Content/` | Game assets (maps only in repo) |
+| `Content/` | Game assets (maps tracked; `RPGHeroSquad/` pending first LFS commit) |
+| `.gitattributes` | Git LFS pointer rules for UE and media binaries |
+| `.gitignore` | UE generated dirs + local IDE/MCP exclusions |
 | `Plugins/` | **Absent** — no project-local plugins |
 | `Binaries/`, `Intermediate/`, `Saved/`, `DerivedDataCache/` | Generated / local (largely gitignored) |
 | `TheGoldenAge.sln` / `.slnx`, `Automation_TheGoldenAge.sln(x)` | Generated IDE solutions |
@@ -164,6 +170,7 @@ Config/
 |------|--------|
 | `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** |
 | `Content/_Main/Lvl_M.umap` | Very small map; references `Lvl_Main` in asset strings — **role unverified** (sublevel, test, or WIP) |
+| `Content/RPGHeroSquad/` | Imported character/animation content (Fab-style tree). **Use LFS on commit.** Verify licenses/attribution before shipping. |
 | `Content/Collections/` | Present; no game assets verified on disk |
 | `Content/Developers/` | Per-developer editor folders (standard UE) |
 
@@ -335,8 +342,10 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | CommonUI settings without plugin enable | Low | May confuse; verify before UI work |
 | Aggressive RT/Lumen defaults | Low | May hurt perf on low-end hardware during prototyping |
 | `DefaultEditor.ini` empty | Low | Harmless |
-| MCP config dirs untracked | Info | `.cursor/`, `.vscode/`, etc. — per-machine tooling |
-| No git remote | Info | Collaboration/backup not configured |
+| MCP / IDE local config | Info | `.cursor/`, `.vscode/`, `.codex/`, etc. — **gitignored** (was untracked) |
+| `.idea/` still in Git history | Medium | Added to `.gitignore`; remove from index with team agreement (see [Git, Git LFS, and Asset Management Guidelines](#git-git-lfs-and-asset-management-guidelines)) |
+| Maps in Git as non-LFS blobs | Low | `Lvl_Main` / `Lvl_M` committed before LFS rules — **history migration optional** (~50 KiB total) |
+| `Content/RPGHeroSquad/` not committed | In progress | ~64 MiB local; must be first major LFS content drop |
 | `Lvl_M` purpose unclear | Low | Confirm in editor before use |
 
 ### Placeholder / incomplete
@@ -365,6 +374,7 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | Unknown (config) | **Lvl_Main** as default game/editor map | Central main level under `Content/_Main/` | Other maps | Maps, PIE, packaging |
 | Unknown (config) | **Lumen + Nanite + RT** project renderer settings | UE 5.8 template-style defaults | Scalable/mobile-first renderer profile | Performance, art pipeline |
 | 2026-11-08 | Maintain **`PROJECT_CONTEXT.md`** as shared agent/developer knowledge base | Multi-agent continuity and onboarding | Wiki-only or no doc | Process / all systems |
+| 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
 
 **Reconsideration policy:** If reversing a decision (e.g. disabling Lumen for shipping), add a new row here with rationale; do not delete historical rows.
@@ -374,6 +384,16 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-08 — Configure Git LFS and UE git exclusions
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added Git LFS patterns for UE and media assets; extended `.gitignore` for IDE/MCP/OS junk; documented team Git/LFS rules in this file. Ran `git lfs install` (hooks updated). **No commit or history rewrite performed.** |
+| **Files / systems** | `.gitattributes`, `.gitignore`, `PROJECT_CONTEXT.md` |
+| **Reason** | Support collaborative UE development and large binaries (`Content/RPGHeroSquad/`, future Fab imports). |
+| **Implementation notes** | LFS: `.uasset`, `.umap`, `fbx`, textures, audio, video, fonts; `Content/**/*.obj` only (avoids C++ `*.obj` in `.gitignore`). Ignore: `.idea/`, `.vscode/`, `.cursor/`, `.codex/`, `.gemini/`, `.mcp.json`, `.DS_Store`, `Thumbs.db`. |
+| **Follow-up** | Commit `.gitattributes` + `.gitignore` first; then add content with LFS; optional `git lfs migrate` for old maps; stop tracking `.idea/` if team agrees. Ensure GitHub LFS storage/billing for ~64 MiB+ squad content. |
 
 ### 2026-11-08 — Create shared project context document
 
@@ -388,12 +408,106 @@ Entries are **newest first**. Preserve all history.
 
 ---
 
+## Git, Git LFS, and Asset Management Guidelines
+
+Shared rules for **all developers and AI agents**. Remote: `https://github.com/shuang-shawn/TheGoldenAge.git` (Git LFS endpoint enabled on GitHub).
+
+### Prerequisites (each machine)
+
+1. Install [Git LFS](https://git-lfs.com/) (project verified with **3.3.0** on Windows).
+2. Clone, then run: `git lfs install` (once per user account).
+3. After pull: `git lfs pull` if assets look like small text pointer files instead of binaries.
+
+### Asset management
+
+- All Unreal binary assets **must** be tracked through Git LFS where configured in `.gitattributes` (`.uasset`, `.umap`, textures, audio, etc.).
+- **Imported Fab / marketplace content** (e.g. `Content/RPGHeroSquad/`): commit **all** dependencies (meshes, materials, textures, skeletons, animations). Open referencers in editor before push to catch missing pieces.
+- **Do not** commit generated UE folders: `Binaries/`, `Intermediate/`, `Saved/`, `DerivedDataCache/`, build artifacts (see `.gitignore`).
+- Before adding large binaries, confirm extension is in `.gitattributes` (`git check-attr filter -- <path>` should report `filter: lfs`).
+- **`*.obj`:** C++ object files are excluded by `*.obj` in `.gitignore`. 3D Wavefront models under `Content/**/*.obj` are LFS-tracked only if force-added or placed under `Content/` with team awareness — prefer **FBX/GLB** for source art.
+- Preserve third-party **licenses and attribution** (Fab/Epic/marketplace) in `Content/` or `Docs/` as required by the license.
+- Do not commit **secrets** (Android File Server tokens, API keys, MCP credentials).
+
+### Blueprint and map collaboration
+
+- Avoid editing the **same** `.uasset` or `.umap` at the same time across machines/agents — Git cannot merge UE binaries meaningfully.
+- Coordinate **ownership** of major Blueprints, maps (e.g. `Lvl_Main`, `Lvl_M`), and gameplay systems.
+- Do not overwrite another developer's work without understanding its purpose.
+- Commit often; keep commits **focused** (one map, one feature, or one content pack).
+- If a binary conflict occurs, **do not** pick a side blindly — coordinate with the last editor of that asset.
+
+### Git workflow
+
+1. `git pull` (and `git lfs pull`) before starting work.
+2. Review `git status` and existing uncommitted changes (especially another agent's WIP).
+3. After adding binaries, verify: `git lfs ls-files` lists new paths; files are not 130-byte `version https://git-lfs.github.com/spec/v1` stubs on disk when opened in UE.
+4. Commit `.gitattributes` and `.gitignore` when tracking or exclusion rules change.
+5. **Never** `git push --force` or rewrite **shared** history without explicit team agreement.
+6. Push order for new LFS setup: commit **`.gitattributes` first**, then LFS content (GitHub must know patterns before objects upload).
+
+### AI agent responsibilities
+
+**Before modifying the project**
+
+1. Read `PROJECT_CONTEXT.md` (including this section).
+2. Check `git status` and `git diff`.
+3. Understand uncommitted work; do not clobber another developer or agent's changes.
+
+**After modifying the project**
+
+1. Review `git diff` and `git lfs status` (if available).
+2. Confirm new binaries are LFS-tracked, not plain blobs.
+3. Update `PROJECT_CONTEXT.md` if Git conventions, content layout, or repo state changed materially.
+4. Add a [Development Change Log](#h-development-change-log) entry for meaningful repo/config changes.
+
+### Current repository state (LFS migration)
+
+| Item | Status |
+|------|--------|
+| **LFS rules in `.gitattributes`** | Configured locally (**uncommitted** until team commits) |
+| **Files already in Git as plain blobs** | `Content/_Main/Lvl_Main.umap` (~48 KiB), `Lvl_M.umap` (~1.2 KiB) — committed **before** LFS rules |
+| **`git lfs ls-files` on HEAD** | **Empty** — no LFS objects in history yet |
+| **Impact** | Very small; new adds use LFS once rules are on `main` |
+| **Optional history rewrite** | Not required for size; recommended for **consistency** after team agrees |
+
+**Optional migration plan (do not run without team + remote coordination)**
+
+1. Ensure everyone has pushed or backed up work; announce maintenance window.
+2. Commit and push current `.gitattributes` on `main`.
+3. On a clean clone, migrate history (example — adjust includes as needed):
+
+   ```bash
+   git lfs migrate import --include="*.umap,*.uasset" --everything
+   ```
+
+4. All collaborators: **re-clone** or hard-reset to the new history per Git LFS migrate docs; **never** mix old and new history.
+5. Force-push only if **all** team members agree and GitHub is the single source of truth.
+
+**Stop tracking IDE metadata (recommended follow-up)**
+
+`.idea/` is still in the initial commit but now **gitignored**. To remove from the index without deleting local files:
+
+```bash
+git rm -r --cached .idea/
+git commit -m "Stop tracking Rider .idea metadata"
+```
+
+### Adding `Content/RPGHeroSquad/` (recommended next content commit)
+
+1. Commit `.gitattributes` + `.gitignore` + `PROJECT_CONTEXT.md` updates.
+2. `git add Content/RPGHeroSquad/`
+3. Verify: `git lfs ls-files | head` shows `.uasset` entries.
+4. Commit and push; confirm GitHub LFS objects on the repo’s Insights → LFS.
+
+---
+
 ## Appendix: Environment setup (optional)
 
 | Item | Notes |
 |------|--------|
 | **Engine** | Install UE **5.8** and associate with `TheGoldenAge.uproject` |
-| **unreal-mcp** | Optional; run local server on port 8000 if using Cursor/VS MCP configs (files may live in untracked `.cursor/`, `.vscode/`) |
+| **Git LFS** | Required for content work; `git lfs install` after clone |
+| **unreal-mcp** | Optional; run local server on port 8000 if using Cursor/VS MCP configs (gitignored under `.cursor/`, `.vscode/`) |
 | **Android File Server** | If used, tokens live in `Config/DefaultEngine.ini` — **rotate/regenerate if leaked**; do not commit secrets to shared docs |
 
 ---
@@ -407,6 +521,7 @@ Entries are **newest first**. Preserve all history.
 | Any custom C++ gameplay classes? | **No** |
 | Multiplayer? | **Not configured** |
 | Where to log agent work? | [Development Change Log](#h-development-change-log) |
+| Git LFS / assets? | [Git, Git LFS, and Asset Management Guidelines](#git-git-lfs-and-asset-management-guidelines) |
 
 ---
 
