@@ -93,7 +93,6 @@ TheGoldenAge.uproject
             └── No AActor / APawn / AGameMode / UGameInstance subclasses in Source/
 Content/_Main/
     └── Lvl_Main (game & editor default map)
-    └── Lvl_M (small map; purpose unverified)
 Content/RPGHeroSquad/
     └── Fab/third-party hero squad assets (animations, etc.) — **untracked locally until committed via LFS**
 Config/
@@ -168,8 +167,7 @@ Config/
 
 | Path | Notes |
 |------|--------|
-| `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** |
-| `Content/_Main/Lvl_M.umap` | Very small map; references `Lvl_Main` in asset strings — **role unverified** (sublevel, test, or WIP) |
+| `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** (only level in `_Main`) |
 | `Content/RPGHeroSquad/` | Imported character/animation content (Fab-style tree). **Use LFS on commit.** Verify licenses/attribution before shipping. |
 | `Content/Collections/` | Present; no game assets verified on disk |
 | `Content/Developers/` | Per-developer editor folders (standard UE) |
@@ -226,8 +224,6 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 **Lvl_Main (verified at high level):** Template lighting stack, `PlayerStart`, floor mesh, sky — suitable as a greybox empty stage.
 
-**Lvl_M:** **Unverified** — inspect in editor before relying on it in builds or streaming.
-
 ### Input stack
 
 - `DefaultPlayerInputClass` → `EnhancedPlayerInput`
@@ -275,7 +271,7 @@ These support **editor automation**, not packaged game features, unless explicit
 | Area | Convention |
 |------|------------|
 | **Project / module name** | PascalCase: `TheGoldenAge` |
-| **Content root for maps** | `Content/_Main/` with prefix `Lvl_` for levels (`Lvl_Main`, `Lvl_M`) |
+| **Content root for maps** | `Content/_Main/` with prefix `Lvl_` for levels (e.g. `Lvl_Main`) |
 | **C++ module** | Single primary module matching project name |
 | **Copyright header** | Epic template style in `Source/` files |
 | **Build.cs comments** | Epic template pattern for optional Slate / OnlineSubsystem |
@@ -344,9 +340,8 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | `DefaultEditor.ini` empty | Low | Harmless |
 | MCP / IDE local config | Info | `.cursor/`, `.vscode/`, `.codex/`, etc. — **gitignored** (was untracked) |
 | `.idea/` still in Git history | Medium | Added to `.gitignore`; remove from index with team agreement (see [Git, Git LFS, and Asset Management Guidelines](#git-git-lfs-and-asset-management-guidelines)) |
-| Maps in Git as non-LFS blobs | Low | `Lvl_Main` / `Lvl_M` committed before LFS rules — **history migration optional** (~50 KiB total) |
+| Maps in Git as non-LFS blobs | Low | `Lvl_Main` committed before LFS rules — **history migration optional** (~48 KiB) |
 | `Content/RPGHeroSquad/` not committed | In progress | ~64 MiB local; must be first major LFS content drop |
-| `Lvl_M` purpose unclear | Low | Confirm in editor before use |
 
 ### Placeholder / incomplete
 
@@ -359,7 +354,6 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | Game genre, camera, core loop | **Undecided** (no design doc) |
 | C++ vs Blueprint split | **Undecided** |
 | Multiplayer scope | **Undecided** (no net config) |
-| Meaning and role of `Lvl_M` | **Undecided** |
 | Whether to adopt CommonUI | **Undecided** |
 | Target shipping platforms beyond Desktop | **Undecided** |
 
@@ -385,6 +379,15 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 
 Entries are **newest first**. Preserve all history.
 
+### 2026-11-08 — Remove unused `Lvl_M` map
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Deleted `Content/_Main/Lvl_M.umap` (not used). Default maps unchanged (`Lvl_Main` only). |
+| **Files / systems** | `Content/_Main/Lvl_M.umap` (removed); `PROJECT_CONTEXT.md` |
+| **Reason** | Team decision — map will not be used. |
+| **Follow-up** | Commit deletion with `git rm` so remote/history no longer ship the asset. |
+
 ### 2026-11-08 — Configure Git LFS and UE git exclusions
 
 | Field | Detail |
@@ -404,7 +407,7 @@ Entries are **newest first**. Preserve all history.
 | **Reason** | Enable consistent multi-agent and team development with a single source of truth. |
 | **Implementation notes** | Document reflects verified empty-template state: no gameplay C++, two maps, UE 5.8, Enhanced Input defaults, MCP editor plugins. Unknowns explicitly marked. |
 | **Dependencies / architecture** | None code-related; process dependency on agents updating this file after each meaningful change. |
-| **Follow-up** | When gameplay begins: add GameMode/Pawn, content folders, and update Sections B, D, F; resolve `Lvl_M` and CommonUI; add git remote if collaborating. |
+| **Follow-up** | When gameplay begins: add GameMode/Pawn, content folders, and update Sections B, D, F; resolve CommonUI. |
 
 ---
 
@@ -431,7 +434,7 @@ Shared rules for **all developers and AI agents**. Remote: `https://github.com/s
 ### Blueprint and map collaboration
 
 - Avoid editing the **same** `.uasset` or `.umap` at the same time across machines/agents — Git cannot merge UE binaries meaningfully.
-- Coordinate **ownership** of major Blueprints, maps (e.g. `Lvl_Main`, `Lvl_M`), and gameplay systems.
+- Coordinate **ownership** of major Blueprints, maps (e.g. `Lvl_Main`), and gameplay systems.
 - Do not overwrite another developer's work without understanding its purpose.
 - Commit often; keep commits **focused** (one map, one feature, or one content pack).
 - If a binary conflict occurs, **do not** pick a side blindly — coordinate with the last editor of that asset.
@@ -465,7 +468,7 @@ Shared rules for **all developers and AI agents**. Remote: `https://github.com/s
 | Item | Status |
 |------|--------|
 | **LFS rules in `.gitattributes`** | Configured locally (**uncommitted** until team commits) |
-| **Files already in Git as plain blobs** | `Content/_Main/Lvl_Main.umap` (~48 KiB), `Lvl_M.umap` (~1.2 KiB) — committed **before** LFS rules |
+| **Files already in Git as plain blobs** | `Content/_Main/Lvl_Main.umap` (~48 KiB) — committed **before** LFS rules (`Lvl_M` removed 2026-11-08) |
 | **`git lfs ls-files` on HEAD** | **Empty** — no LFS objects in history yet |
 | **Impact** | Very small; new adds use LFS once rules are on `main` |
 | **Optional history rewrite** | Not required for size; recommended for **consistency** after team agrees |
