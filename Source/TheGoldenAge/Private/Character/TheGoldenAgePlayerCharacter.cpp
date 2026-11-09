@@ -6,8 +6,10 @@
 
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
-#include "Animation/AnimSingleNodeInstance.h"
-#include "Animation/AnimSequence.h"
+#include "Animation/AnimClassInterface.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimNode_SequencePlayer.h"
+#include "Animation/AnimSequenceBase.h"
 #include "EnhancedInputComponent.h"
 #include "InputAction.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -15,6 +17,40 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
+#include "UObject/UnrealType.h"
+
+namespace
+{
+void ApplyLocomotionPlayRates(UAnimInstance* AnimInstance, float MovePlayRate)
+{
+	const IAnimClassInterface* AnimClass = AnimInstance
+		? IAnimClassInterface::GetFromClass(AnimInstance->GetClass())
+		: nullptr;
+	if (!AnimClass)
+	{
+		return;
+	}
+
+	for (const FStructProperty* NodeProperty : AnimClass->GetAnimNodeProperties())
+	{
+		if (!NodeProperty || NodeProperty->Struct != FAnimNode_SequencePlayer::StaticStruct())
+		{
+			continue;
+		}
+
+		FAnimNode_SequencePlayer* Player = NodeProperty->ContainerPtrToValuePtr<FAnimNode_SequencePlayer>(AnimInstance);
+		const UAnimSequenceBase* Sequence = Player ? Player->GetSequence() : nullptr;
+		if (!Sequence)
+		{
+			continue;
+		}
+
+		// Idle clips stay at 1. Move clips, including the Explorer sprint used for every direction, scale with speed.
+		const float PlayRate = Sequence->GetName().Contains(TEXT("Idle")) ? 1.f : MovePlayRate;
+		Player->SetPlayRate(PlayRate);
+	}
+}
+}
 
 const FName ATheGoldenAgePlayerCharacter::PlayerActorTag(TEXT("Player"));
 const FName ATheGoldenAgePlayerCharacter::HeroActorTag(TEXT("Hero"));
@@ -59,38 +95,6 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
-
-	static ConstructorHelpers::FObjectFinder<UAnimSequence> IdleBattle(
-		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/Anim_Idle_Battle_TinyHero.Anim_Idle_Battle_TinyHero"));
-	static ConstructorHelpers::FObjectFinder<UAnimSequence> MoveFWD(
-		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/InPlace/Anim_MoveFWD_Battle_InPlace_TinyHero.Anim_MoveFWD_Battle_InPlace_TinyHero"));
-	static ConstructorHelpers::FObjectFinder<UAnimSequence> MoveBWD(
-		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/InPlace/Anim_MoveBWD_Battle_InPlace_TinyHero.Anim_MoveBWD_Battle_InPlace_TinyHero"));
-	static ConstructorHelpers::FObjectFinder<UAnimSequence> MoveLFT(
-		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/InPlace/Anim_MoveLFT_Battle_InPlace_TinyHero.Anim_MoveLFT_Battle_InPlace_TinyHero"));
-	static ConstructorHelpers::FObjectFinder<UAnimSequence> MoveRGT(
-		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/InPlace/Anim_MoveRGT_Battle_InPlace_TinyHero.Anim_MoveRGT_Battle_InPlace_TinyHero"));
-
-	if (IdleBattle.Succeeded())
-	{
-		IdleBattleAnimation = IdleBattle.Object;
-	}
-	if (MoveFWD.Succeeded())
-	{
-		MoveForwardBattleAnimation = MoveFWD.Object;
-	}
-	if (MoveBWD.Succeeded())
-	{
-		MoveBackwardBattleAnimation = MoveBWD.Object;
-	}
-	if (MoveLFT.Succeeded())
-	{
-		MoveLeftBattleAnimation = MoveLFT.Object;
-	}
-	if (MoveRGT.Succeeded())
-	{
-		MoveRightBattleAnimation = MoveRGT.Object;
-	}
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> MoveActionAsset(
 		TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
@@ -403,34 +407,13 @@ ETheGoldenAgeBattleMoveDirection ATheGoldenAgePlayerCharacter::SelectBattleMoveD
 	return FlatLocal.Y >= 0.f ? ETheGoldenAgeBattleMoveDirection::Forward : ETheGoldenAgeBattleMoveDirection::Backward;
 }
 
-UAnimSequence* ATheGoldenAgePlayerCharacter::GetBattleAnimationForDirection(ETheGoldenAgeBattleMoveDirection Direction) const
-{
-	switch (Direction)
-	{
-	case ETheGoldenAgeBattleMoveDirection::Forward:
-		return MoveForwardBattleAnimation;
-	case ETheGoldenAgeBattleMoveDirection::Backward:
-		return MoveBackwardBattleAnimation;
-	case ETheGoldenAgeBattleMoveDirection::Left:
-		return MoveLeftBattleAnimation;
-	case ETheGoldenAgeBattleMoveDirection::Right:
-		return MoveRightBattleAnimation;
-	default:
-		return IdleBattleAnimation;
-	}
-}
-
 void ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation()
 {
 	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp)
+	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (!AnimInstance)
 	{
 		return;
-	}
-
-	if (MeshComp->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
-	{
-		MeshComp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	}
 
 	const FVector LocomotionVelocity = GetLocomotionVelocity();
@@ -441,31 +424,22 @@ void ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation()
 		? SelectBattleMoveDirection(LocomotionVelocity)
 		: ETheGoldenAgeBattleMoveDirection::None;
 
-	UAnimSequence* DesiredAnimation = bIsMoving
-		? GetBattleAnimationForDirection(CurrentBattleMoveDirection)
-		: IdleBattleAnimation.Get();
-
-	if (!DesiredAnimation)
-	{
-		return;
-	}
-
-	UAnimSingleNodeInstance* SingleNode = MeshComp->GetSingleNodeInstance();
-	if (!SingleNode)
-	{
-		return;
-	}
-
-	if (SingleNode->GetCurrentAsset() != DesiredAnimation)
-	{
-		SingleNode->SetAnimationAsset(DesiredAnimation, true);
-	}
-
-	SingleNode->SetPlaying(true);
-	SingleNode->SetLooping(true);
-
 	const float PlayRate = bIsMoving
 		? FMath::Clamp(Speed2D / AnimPlayRateReferenceSpeed, AnimPlayRateMin, AnimPlayRateMax)
 		: 1.f;
-	SingleNode->SetPlayRate(PlayRate);
+
+	// Both Anim Blueprints treat 0 as idle. ABP_Hero plays the forward clip for every other value.
+	// ABP_Explorer still maps 1 forward, 2 backward, 3 left, and any other value to its last move pose.
+	// Those numbers match ETheGoldenAgeBattleMoveDirection. Do not insert an enum value ahead of Right.
+	UClass* AnimClass = AnimInstance->GetClass();
+	if (FByteProperty* DirectionProperty = FindFProperty<FByteProperty>(AnimClass, TEXT("BattleMoveDirection")))
+	{
+		DirectionProperty->SetPropertyValue_InContainer(AnimInstance, static_cast<uint8>(CurrentBattleMoveDirection));
+	}
+	if (FDoubleProperty* PlayRateProperty = FindFProperty<FDoubleProperty>(AnimClass, TEXT("LocomotionPlayRate")))
+	{
+		PlayRateProperty->SetPropertyValue_InContainer(AnimInstance, static_cast<double>(PlayRate));
+	}
+
+	ApplyLocomotionPlayRates(AnimInstance, PlayRate);
 }

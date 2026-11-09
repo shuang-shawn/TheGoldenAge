@@ -68,11 +68,11 @@ Cursor always applies `.cursor/rules/project-context.mdc`: read this file before
 |------|--------|
 | **Project name** | TheGoldenAge |
 | **Game concept & genre** | **[Design]** **3D top-down action RPG** (*Hades*-style camera; MOBA-inspired targeting **planned**). See [Gameplay design requirements](#gameplay-design-requirements). **Locomotion implemented.** |
-| **Core gameplay experience** | **[Design]** Mouse combat targeting, abilities — **planned**. **[Impl]** Top-down follow camera, camera-relative WASD movement, movement-facing on `BP_TinyHeroPolyart`; battle in-place locomotion on `Lvl_Main` via `ATheGoldenAgeGameMode`. |
+| **Core gameplay experience** | **[Design]** Mouse combat targeting, abilities — **planned**. **[Impl]** Top-down follow camera, camera-relative WASD movement, and movement-facing on `BP_Hero` and `BP_Explorer`. Battle in-place locomotion plays from `ABP_Hero` and `ABP_Explorer`. |
 | **Target platforms** | **Desktop** per `Config/DefaultEngine.ini` (`HardwareTargetingSettings`). Renderer configs also reference mobile/Linux/Mac shader paths (template defaults). **Shipping targets not formally defined.** |
 | **Unreal Engine version** | **5.8** (`EngineAssociation` in `TheGoldenAge.uproject`). Editor log indicates **5.8.3** install at `K:/UE_5.8` (environment-specific; not required for all developers). |
 | **Development stage** | **Early prototype** — basic player movement and battle locomotion animations implemented; combat/targeting not started. |
-| **Primary languages** | C++ (gameplay base classes), Blueprints (`BP_TinyHeroPolyart`, input assets), C# (UBT), ini configuration. |
+| **Primary languages** | C++ (gameplay base classes), Blueprints (`BP_Hero`, `BP_Explorer`, input assets), C# (UBT), ini configuration. |
 
 ### Main technologies and dependencies
 
@@ -263,7 +263,7 @@ Config/
 |-------|------|
 | `ATheGoldenAgeGameMode` | No default pawn. `RestartPlayer` does nothing; `UTheGoldenAgePlayerSync` possesses `BP_Hero` or `BP_Explorer` after login. |
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
-| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. |
+| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, and the locomotion values copied onto `ABP_Hero` / `ABP_Explorer`. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. |
 | `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Detection collects tag `Player` only. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. `MonsterId` 0 is local-only. A server id is `Passive` (turn toward the latest server yaw, and claim when a player is in range and the row is unowned), `Claiming`, or `Owner` (runs the child logic). The owner sends attack-flag changes immediately and sends position or rotation at most 20 times per second after a 10 cm or 5 degree change. |
 | `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player, sets `bIsAttacking`, and sets `bLoopAttack` true only while a player is inside range. After the player leaves, `bLoopAttack` stays false through the rest of the attack sequence whose name contains `Attack`, then idle. That false value is what the owner writes to `loop_attack`. The owner releases the server claim once idle is reached and nobody is in range. Used by `BP_ChestMonster` and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
 | `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. Same face-and-attack behaviour for now, including `bLoopAttack` false whenever no player is nearby, and the server claim and release. Used by `BP_GhostFish` after that Blueprint is reparented. Clips stay in `ABP_GhostFish`. |
@@ -271,8 +271,10 @@ Config/
 
 **Blueprints / content:**
 
-- **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Actor tags `Player` and `Hero`. Mesh `SK_TinyHeroPolyart`, Tiny Hero battle in-place clips, sword/shield on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
-- **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Actor tags `Player` and `Explorer`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
+- **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Actor tags `Player` and `Hero`. Mesh `SK_TinyHeroPolyart` uses `ABP_Hero`. Sword and shield stay on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
+- **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Actor tags `Player` and `Explorer`. Mesh `SK_DogPolyart` uses `ABP_Explorer`. Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
+- **`ABP_Hero`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `TinyHero_Skeleton`. `BattleMoveDirection` `0` plays looping idle battle. Any other value plays looping `Anim_MoveFWD_Battle_InPlace_TinyHero`. Blend time is 0.1 s. `LocomotionPlayRate` drives that forward player. The character copies both values each tick.
+- **`ABP_Explorer`** — `Content/_Main/Blueprint/`. Same graph on `AnimalHero_Skeleton`. Idle is `Anim_Idle_Battle_AnimalHero`. Every move direction plays `Anim_SprintForwardBattle_IP_AnimalHero` (the pack has no back/left/right in-place clips). `LocomotionPlayRate` drives that sprint player.
 - **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Actor tags `Trap` and `Monster` are on the Blueprint defaults, so a spawned instance keeps them. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. It is not placed in `Lvl_Main`. The server seeds it at (-30, 420, 70) and the client spawns it from the `monster` table.
 - **`BP_GhostFish`** — `Content/_Main/Blueprint/`. Parent is still `ATheGoldenAgeChestMonster` until Live Coding registers `ATheGoldenAgeGhostFish` and the Blueprint is reparented. Actor tags `Ghost` and `Monster` are on the Blueprint defaults. Mesh is polyart `Swarm08_SK` with `ABP_GhostFish`. `DetectionRange` on this Blueprint is 250. It is not placed in `Lvl_Main`. The server seeds it at (-510, 440, 70) and the client spawns it. A hero sees it. An explorer does not.
 - **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
@@ -401,19 +403,22 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 ### Player character and battle locomotion animations
 
-**Playable pawn:** `Content/RPGHeroSquad/CharacterBP/BP_TinyHeroPolyart` (child of `ATheGoldenAgePlayerCharacter`).
+**Playable pawns:** `BP_Hero` and `BP_Explorer` (children of `ATheGoldenAgePlayerCharacter`).
 
-**Locomotion logic (C++):** `AnimationSingleNode` on skeletal mesh; switches sequences from velocity (no root-motion drive). Idle when speed is below `MinMovingSpeed` (default 10). The local pawn uses `CharacterMovement` velocity. Other online pawns are transform-snapped by `UTheGoldenAgePlayerSync` with movement simulation disabled, so their actor tick stays on and locomotion uses a velocity derived from position deltas (`RemoteIdleGraceSeconds` holds the last move clip between snaps; jumps over `RemoteTeleportDistance` do not count as steps). Direction and play rate use the same four in-place clips as the local pawn. Camera and movement-facing still run only on the locally controlled pawn.
+**Locomotion logic:** each mesh uses its Anim Blueprint (`AnimationBlueprint` mode). C++ does not swap sequences. Idle when speed is below `MinMovingSpeed` (default 10). The local pawn uses `CharacterMovement` velocity. Other online pawns are transform-snapped by `UTheGoldenAgePlayerSync` with movement simulation disabled, so their actor tick stays on and locomotion uses a velocity derived from position deltas (`RemoteIdleGraceSeconds` holds the last move clip between snaps; jumps over `RemoteTeleportDistance` do not count as steps). Direction and play rate use the same rules for the local and remote pawn. Camera and movement-facing still run only on the locally controlled pawn.
 
-| Local velocity (character space) | Animation asset |
-|----------------------------------|-----------------|
-| Dominant +Y | `Anim_MoveFWD_Battle_InPlace_TinyHero` |
-| Dominant −Y | `Anim_MoveBWD_Battle_InPlace_TinyHero` |
-| Dominant −X | `Anim_MoveLFT_Battle_InPlace_TinyHero` |
-| Dominant +X | `Anim_MoveRGT_Battle_InPlace_TinyHero` |
-| Not moving | `Anim_Idle_Battle_TinyHero` |
+Each tick the character writes `BattleMoveDirection` and `LocomotionPlayRate` on the Anim Instance. It also calls `SetPlayRate` on every sequence player: a clip whose name contains `Idle` stays at rate 1, and the others use the speed scale. The Anim Graph pins are the ones that actually play.
 
-Diagonals: **dominant axis** picks one of the four move clips. Play rate scaled by speed vs `AnimPlayRateReferenceSpeed` (default 300).
+| `BattleMoveDirection` | `ABP_Hero` clip | `ABP_Explorer` clip |
+|-----------------------|-----------------|---------------------|
+| `0` None (not moving) | `Anim_Idle_Battle_TinyHero` | `Anim_Idle_Battle_AnimalHero` |
+| any other value (moving) | `Anim_MoveFWD_Battle_InPlace_TinyHero` | — |
+| `1` dominant +Y (forward) | same forward clip | `Anim_SprintForwardBattle_IP_AnimalHero` |
+| `2` dominant −Y (backward) | same forward clip | same sprint |
+| `3` dominant −X (left) | same forward clip | same sprint |
+| other, including `4` right (dominant +X) | same forward clip | same sprint |
+
+The character still records the dominant axis in `BattleMoveDirection`. `ABP_Hero` only tests zero against any other value, so strafe and backpedal use the forward in-place clip. `ABP_Explorer` still has a pose per value, and every one of those poses is the same sprint. Play rate is speed / `AnimPlayRateReferenceSpeed` (default 300), clamped to 0.6–1.4. Idle and the move clip blend for 0.1 s. Adding an enum value in front of `Right` changes the bytes `ABP_Explorer` compares.
 
 **Equipment (sword/shield):** attached to skeleton sockets (`Weapon_R` sword, `Weapon_L` shield) manually in `BP_TinyHeroPolyart` (editor). No C++ attachment code (the earlier `AttachEquipmentToSockets` startup code was removed, per the no-startup-configuration rule).
 
@@ -519,7 +524,7 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 - [x] High-end rendering defaults configured (Lumen/Nanite/RT)
 - [x] MCP-related engine plugins enabled for editor tooling
 - [x] Initial git commit (`3fc9962`)
-- [x] **Player movement** — `BP_TinyHeroPolyart`, camera-relative WASD, top-down camera, battle in-place locomotion (2026-11-08)
+- [x] **Player movement** — `BP_Hero` and `BP_Explorer`, camera-relative WASD, top-down camera, battle in-place locomotion through `ABP_Hero` and `ABP_Explorer` (2026-11-09)
 
 ### In progress
 
@@ -532,7 +537,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 - [ ] Player Controller — cursor → ground-plane targeting API
 - [ ] Combat rotation via `RequestFaceDirection` / ability system
 - [ ] Attack/skill `InputAction`s and mouse bindings
-- [x] Chest Monster animation — `ABP_ChestMonster` (idle / Attack 01). Hero locomotion is still single-node.
+- [x] Chest Monster animation — `ABP_ChestMonster` (idle / Attack 01). Hero and Explorer locomotion use `ABP_Hero` and `ABP_Explorer`.
 
 ### Partially implemented
 
@@ -586,6 +591,8 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | 2026-11-08 | **Enhanced Input only** for player controls; modular targeting architecture | UE modern input; separates movement, cursor target, and abilities | Legacy mappings; cursor-driven locomotion rotation | Player Controller, Character, Input assets |
 | 2026-11-08 | **C++ core + Blueprint children** for customized gameplay | Performance and reuse in C++; designer iteration in BP | Blueprint-only or duplicated logic in both layers | All future gameplay classes |
 | 2026-11-08 | Chest Monster clips live in **`ABP_ChestMonster`** | Gameplay sets `bIsAttacking`; the AnimGraph chooses and blends clips so later attacks are added there | Keep swapping `UAnimSequence` on a single-node mesh | Chest Monster, animation |
+| 2026-11-09 | Hero and Explorer locomotion clips live in **`ABP_Hero`** and **`ABP_Explorer`** | The character writes `BattleMoveDirection` and `LocomotionPlayRate`. New clips are added in the Anim Graph. The byte values match `ETheGoldenAgeBattleMoveDirection` | Keep swapping sequences on a single-node mesh, or a C++ Anim Instance parent | `BP_Hero`, `BP_Explorer` |
+| 2026-11-09 | Hero movement plays only the **forward** in-place clip | `ABP_Hero` uses idle when `BattleMoveDirection` is 0 and `Anim_MoveFWD_Battle_InPlace_TinyHero` for every other value | Keep the four directional hero clips in the blend | `ABP_Hero` |
 | 2026-11-09 | Finish the current Attack 01 cycle by clearing **`bLoopAttack`** | The attack sequence player stops wrapping and holds its last frame; `bIsAttacking` then selects idle. Re-entering range sets `bLoopAttack` true again | State-machine transition, or cutting to idle on the frame the player leaves | Chest Monster, `ABP_ChestMonster` |
 | 2026-11-09 | Monster sight uses actor tags; detection stays on **`Player`** | `hero` sees `ghost`, `explorer` sees `trap`. Both creatures also have `monster`. Detection does not read role tags. | Per-role monster classes, or hiding by collision channel | `ATheGoldenAgeMonster`, `BP_Hero`, `BP_Explorer`, `BP_ChestMonster`, `BP_GhostFish` |
 | 2026-11-09 | Swarm08 reuses **`ATheGoldenAgeChestMonster`** | Idle/attack detection is the same; only the mesh and Anim Blueprint differ. The C++ class already finds a sequence whose name contains `Attack` | A new Swarm C++ class that copies the same tick logic | `BP_Swarm08`, `ABP_Swarm08` |
@@ -603,6 +610,24 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Hero movement uses the forward clip only
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `ABP_Hero` plays idle battle when `BattleMoveDirection` is 0, and `Anim_MoveFWD_Battle_InPlace_TinyHero` for every other value. Back, left, and right no longer have their own clips. Play rate still scales that forward clip. `ABP_Explorer` is unchanged. |
+| **Files / systems** | `ABP_Hero`. Comment in `ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation`. |
+| **Reason** | Hero locomotion only needs the forward in-place animation. |
+| **Follow-up** | No Live Coding. The Anim Blueprint is already compiled. Play as Hero and move in each direction. The pose should stay the forward battle move, and idle should return when you stop. |
+
+### 2026-11-09 — Hero and Explorer use Anim Blueprints
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `BP_Hero` and `BP_Explorer` play locomotion through `ABP_Hero` and `ABP_Explorer` instead of a single animation node. The character still picks the dominant move direction and the speed scale, then copies `BattleMoveDirection` and `LocomotionPlayRate` onto the Anim Instance. The Anim Graph blends idle and the directional clips (0.1 s). Explorer still uses the Animal Hero in-place sprint for every move direction. |
+| **Files / systems** | `ATheGoldenAgePlayerCharacter`; `ABP_Hero`; `ABP_Explorer`; mesh Anim Class on `BP_Hero` and `BP_Explorer`. |
+| **Reason** | Later locomotion clips should be added in the Anim Graph, the same way monster clips live in their Anim Blueprints. |
+| **Follow-up** | Live Coding. Log in as Hero and as Explorer. Idle, then walk forward, back, left, and right. The hero should use the four in-place battle clips. The explorer should sprint in place for every direction. Changing speed should change the move clip's play rate. A remote pawn should still switch clips from position snaps. |
 
 ### 2026-11-09 — `wasm-opt` is on the user PATH
 

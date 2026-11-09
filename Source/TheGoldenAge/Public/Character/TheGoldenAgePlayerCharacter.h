@@ -6,7 +6,6 @@
 #include "GameFramework/Character.h"
 #include "TheGoldenAgePlayerCharacter.generated.h"
 
-class UAnimSequence;
 class UCameraComponent;
 class UInputAction;
 class USpringArmComponent;
@@ -22,7 +21,8 @@ enum class ETheGoldenAgeBattleMoveDirection : uint8
 };
 
 /**
- * Top-down player character: camera-relative WASD movement, movement-facing, battle in-place locomotion anims.
+ * Top-down player character: camera-relative WASD movement, movement-facing, battle in-place locomotion.
+ * Clip choice lives in ABP_Hero and ABP_Explorer. This class reports the move direction and play rate.
  */
 UCLASS()
 class THEGOLDENAGE_API ATheGoldenAgePlayerCharacter : public ACharacter
@@ -119,21 +119,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "1.0"))
 	float RemoteTeleportDistance = 800.f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
-	TObjectPtr<UAnimSequence> IdleBattleAnimation;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
-	TObjectPtr<UAnimSequence> MoveForwardBattleAnimation;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
-	TObjectPtr<UAnimSequence> MoveBackwardBattleAnimation;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
-	TObjectPtr<UAnimSequence> MoveLeftBattleAnimation;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
-	TObjectPtr<UAnimSequence> MoveRightBattleAnimation;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Animation")
 	ETheGoldenAgeBattleMoveDirection CurrentBattleMoveDirection = ETheGoldenAgeBattleMoveDirection::None;
 
@@ -143,7 +128,6 @@ protected:
 	void UpdateBattleLocomotionAnimation();
 
 	ETheGoldenAgeBattleMoveDirection SelectBattleMoveDirection(const FVector& WorldVelocity) const;
-	UAnimSequence* GetBattleAnimationForDirection(ETheGoldenAgeBattleMoveDirection Direction) const;
 	FVector GetLocomotionVelocity() const;
 
 	FVector LastMovementInputDirection = FVector::ZeroVector;
