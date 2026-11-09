@@ -14,9 +14,12 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 
+const FName ATheGoldenAgePlayerCharacter::PlayerActorTag(TEXT("Player"));
+
 ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	Tags.AddUnique(PlayerActorTag);
 
 	// Presence is owned by SpacetimeDB. Pawns are not replicated or auto-possessed.
 	bReplicates = false;
@@ -110,6 +113,9 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 void ATheGoldenAgePlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// A saved Blueprint tag list replaces the constructor value, so put the tag back on every instance.
+	Tags.AddUnique(PlayerActorTag);
 
 	if (!MoveAction)
 	{

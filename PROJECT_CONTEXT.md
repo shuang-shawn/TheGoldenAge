@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-08 (agents do not compile; the user runs Live Coding manually after each task)  
+**Last verified against codebase:** 2026-11-09 (agents do not compile; the user runs Live Coding manually after each task)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -196,7 +196,7 @@ Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable
 - Consistent naming across C++, Blueprints, and assets.
 - Inspect existing layout before adding folders; **do not** reorganize the whole project without cause.
 
-**[Impl]** Maps under `Content/_Main/`; imported squad content under `Content/RPGHeroSquad/` (Fab-style tree). No `Content/_Main/Characters` or `Input/` yet.
+**[Impl]** Maps and gameplay Blueprints under `Content/_Main/` (`Lvl_Main`, `Input/`, `Blueprint/`). Imported squad content under `Content/RPGHeroSquad/`. Imported monsters under `Content/MonsterForSurvivalGame/` (Polyart and PBR). No `Content/_Main/Characters/` folder.
 
 ### Intended gameplay architecture (summary)
 
@@ -225,7 +225,10 @@ TheGoldenAge.uproject
             └── ATheGoldenAgePlayerCharacter (BP parent) → movement, camera, battle anims
 Content/_Main/
     ├── Lvl_Main
-    └── Input/ (IA_Move, IMC_Default)
+    ├── Input/ (IA_Move, IMC_Default)
+    └── Blueprint/BP_ChestMonster (child of ATheGoldenAgeChestMonster; anim: ABP_ChestMonster)
+Content/MonsterForSurvivalGame/
+    └── Mesh/Polyart + Animation/Polyart/ChestMonster (source assets for the BP)
 Content/RPGHeroSquad/
     ├── CharacterBP/BP_TinyHeroPolyart (playable; reparented from SkeletalMeshActor)
     └── Animation/TinyHero/… (battle in-place locomotion)
@@ -243,7 +246,7 @@ Config/
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
-| AI / NPCs | — | **Not implemented** |
+| AI / NPCs | Shared player detection; Chest Monster attack | **Partial** — `ATheGoldenAgeMonster` reports player-tagged actors inside `DetectionRange`. `ATheGoldenAgeChestMonster` faces the closest and sets `bIsAttacking`. Leaving range finishes the current Attack 01 cycle, then idle. `ABP_ChestMonster` plays the clips. No pathfinding, damage, or other monster types. |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
 | Multiplayer / replication | — | **Not configured** (design asks to consider net compatibility in new systems). |
@@ -257,11 +260,15 @@ Config/
 |-------|------|
 | `ATheGoldenAgeGameMode` | Default pawn class `BP_TinyHeroPolyart`; `GetDefaultPawnClassForController` loads BP if needed |
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
-| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion |
+| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` (`PlayerActorTag`) on every instance. |
+| `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Response is up to the child. |
+| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until Attack 01 reaches its last frame, then idle. `ABP_ChestMonster` chooses the clip. |
 
 **Blueprints / content:**
 
-- **`BP_TinyHeroPolyart`** — parent `ATheGoldenAgePlayerCharacter`; mesh `SK_TinyHeroPolyart`; sword/shield attached to `CharacterMesh0`; `AutoPossessPlayer` = Player0.
+- **`BP_TinyHeroPolyart`** — parent `ATheGoldenAgePlayerCharacter`; mesh `SK_TinyHeroPolyart`; sword/shield attached to `CharacterMesh0`; `AutoPossessPlayer` = Player0. Actor tag `Player` saved on the Blueprint.
+- **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`.
+- **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
 - **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IMC_Default`.
 - **`Lvl_Main`** — greybox play map.
 - **`Content/RPGHeroSquad/`** — hero assets (commit via LFS when ready).
@@ -308,6 +315,9 @@ Config/
 | Path | Notes |
 |------|--------|
 | `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** (only level in `_Main`) |
+| `Content/_Main/Blueprint/` | Gameplay Blueprints. `BP_ChestMonster` (polyart Chest Monster) and `ABP_ChestMonster` (idle battle / Attack 01). |
+| `Content/_Main/Input/` | `IA_Move`, `IMC_Default`, and other Enhanced Input assets. |
+| `Content/MonsterForSurvivalGame/` | Imported monster pack (Polyart and PBR meshes, skeletons, physics assets, animations). **Use LFS on commit.** |
 | `Content/RPGHeroSquad/` | Imported character/animation content (Fab-style tree). **Use LFS on commit.** Verify licenses/attribution before shipping. |
 | `Content/Collections/` | Present; no game assets verified on disk |
 | `Content/Developers/` | Per-developer editor folders (standard UE) |
@@ -320,10 +330,10 @@ Source/
   TheGoldenAgeEditor.Target.cs
   TheGoldenAge/
     TheGoldenAge.Build.cs
-    TheGoldenAge.h / TheGoldenAge.cpp
-    TheGoldenAgeGameMode.h / .cpp
-    TheGoldenAgePlayerController.h / .cpp
-    TheGoldenAgePlayerCharacter.h / .cpp
+    Public/Character/   TheGoldenAgePlayerCharacter, TheGoldenAgeMonster, TheGoldenAgeChestMonster
+    Private/Character/  matching .cpp
+    Public/Game, Public/Player, Public/UI, Public/Spacetime, Public/ModuleBindings
+    Private/            matching .cpp
 ```
 
 ### Files to read before significant changes
@@ -456,12 +466,12 @@ Documented in [Gameplay design requirements](#gameplay-design-requirements); app
 | **C++ vs Blueprint** | Core gameplay and reusable systems in C++; Blueprint children for configuration and designer-facing behaviour |
 | **Input** | Enhanced Input only; modular targeting (Controller) vs rotation/movement (Character) vs abilities (combat system) |
 | **Code quality** | Epic naming/macros; focused classes; minimal unnecessary Blueprint exposure; consider multiplayer |
-| **Content folders** | Group by system; prefer `Content/_Main/Input/` (`IA_*`, `IMC_*`) when input assets are added |
+| **Content folders** | Group by system under `Content/_Main/`. Input assets in `Input/` (`IA_*`, `IMC_*`). Gameplay Blueprints in `Blueprint/` (`BP_*`). |
 | **Configuration vs runtime code** | Configure content (socket attachments, mappings, defaults) in assets via MCP or manual editor steps — **not** in startup code. If MCP can't do it, instruct the user to configure it manually. See [While making changes](#while-making-changes) #7. |
 
 ### Not yet established
 
-- **Content folder taxonomy** beyond `_Main` and `RPGHeroSquad/` (e.g. `Characters`, `UI`) — **not present in repo**.
+- **Content folder taxonomy** beyond `_Main/Input`, `_Main/Blueprint`, `RPGHeroSquad/`, and `MonsterForSurvivalGame/` (e.g. `Characters`, `UI`) — **not present**.
 - **Coding standard automation:** `.editorconfig` / clang-format — **not added** (still follow Epic C++ style manually).
 - **Camera class naming/location** — decide when first camera C++ or Blueprint is added.
 
@@ -512,7 +522,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 - [ ] Player Controller — cursor → ground-plane targeting API
 - [ ] Combat rotation via `RequestFaceDirection` / ability system
 - [ ] Attack/skill `InputAction`s and mouse bindings
-- [ ] Animation Blueprint (optional) if single-node limits grow
+- [x] Chest Monster animation — `ABP_ChestMonster` (idle / Attack 01). Hero locomotion is still single-node.
 
 ### Partially implemented
 
@@ -521,13 +531,14 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
 | Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
 | Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
+| Monsters | `ATheGoldenAgeMonster` detection; Chest Monster attack via `ABP_ChestMonster` | No damage. One instance is in `Lvl_Main`. |
 
 ### Known issues / technical debt
 
 | Item | Severity | Notes |
 |------|----------|--------|
 | Basic locomotion only | Expected for stage | Combat, AI, UI still blocked |
-| No content beyond two maps | Medium | No blueprints, meshes, or input assets in VCS |
+| Monster and hero content not committed | Medium | `MonsterForSurvivalGame/`, `RPGHeroSquad/`, and `_Main/Blueprint/` are local; commit with LFS |
 | CommonUI settings without plugin enable | Low | May confuse; verify before UI work |
 | Aggressive RT/Lumen defaults | Low | May hurt perf on low-end hardware during prototyping |
 | `DefaultEditor.ini` empty | Low | Harmless |
@@ -564,6 +575,8 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | 2026-11-08 | **3D top-down action RPG** direction (*Hades*-style camera; MOBA-inspired targeting) | Establishes consistent vision for camera, movement, facing, and future combat | Third-person action, twin-stick without ground targeting, etc. | Camera, Character, Input, combat (future) |
 | 2026-11-08 | **Enhanced Input only** for player controls; modular targeting architecture | UE modern input; separates movement, cursor target, and abilities | Legacy mappings; cursor-driven locomotion rotation | Player Controller, Character, Input assets |
 | 2026-11-08 | **C++ core + Blueprint children** for customized gameplay | Performance and reuse in C++; designer iteration in BP | Blueprint-only or duplicated logic in both layers | All future gameplay classes |
+| 2026-11-08 | Chest Monster clips live in **`ABP_ChestMonster`** | Gameplay sets `bIsAttacking`; the AnimGraph chooses and blends clips so later attacks are added there | Keep swapping `UAnimSequence` on a single-node mesh | Chest Monster, animation |
+| 2026-11-09 | Finish the current Attack 01 cycle by clearing **`bLoopAttack`** | The attack sequence player stops wrapping and holds its last frame; `bIsAttacking` then selects idle. Re-entering range sets `bLoopAttack` true again | State-machine transition, or cutting to idle on the frame the player leaves | Chest Monster, `ABP_ChestMonster` |
 | 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
 
@@ -574,6 +587,78 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Chest Monster finishes the current attack before idle
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Leaving `DetectionRange` no longer cuts Attack 01. `bLoopAttack` goes false so the cycle already playing runs to its last frame, then `bIsAttacking` becomes false and idle battle resumes. Walking back into range during that cycle makes the attack loop again. |
+| **Files / systems** | `ATheGoldenAgeChestMonster`; `ABP_ChestMonster` (`bLoopAttack` on the Attack 01 Loop Animation pin). |
+| **Reason** | The blend was switching to idle on the same frame the player left, so the swing stopped mid-animation. |
+| **Follow-up** | Live Coding, then stop PIE if it is running and play again. Walk out of range mid-swing and confirm Attack 01 finishes before idle. |
+
+### 2026-11-08 — Placed Chest Monster was still on single-node playback
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | The `BP_ChestMonster` instance in `Lvl_Main` kept `AnimationSingleNode` and the idle clip after the Blueprint default moved to `ABP_ChestMonster`. Facing still ran in C++, and the attack clip never started. The instance mesh now uses `ABP_ChestMonster`. |
+| **Files / systems** | `Lvl_Main` actor `BP_ChestMonsterPolyart_C_1` mesh. |
+| **Reason** | The placed actor did not pick up the Blueprint Anim Class change. |
+| **Follow-up** | Stop PIE and play again. Walk into range and confirm Attack 01. |
+
+### 2026-11-08 — Chest Monster uses an Animation Blueprint
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `ABP_ChestMonster` in `Content/_Main/Blueprint/` plays looping idle battle or Attack 01 from `bIsAttacking` (blend time 0). `BP_ChestMonster` uses that Anim Blueprint. `ATheGoldenAgeChestMonster` no longer calls `PlayAnimation`; each tick it copies `bIsAttacking` onto the Anim Instance. |
+| **Files / systems** | `ABP_ChestMonster`; `BP_ChestMonster` mesh Anim Class; `TheGoldenAgeChestMonster.h/.cpp`. |
+| **Reason** | Existing and later Chest Monster animation should be authored in an Animation Blueprint. |
+| **Follow-up** | Live Coding. Place `BP_ChestMonster` in `Lvl_Main` and walk inside `DetectionRange`. Add further clips in `ABP_ChestMonster`. |
+
+### 2026-11-08 — Revert finishing the Chest Monster attack cycle
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Removed the “play out the current Attack 01 cycle” behavior. Leaving `DetectionRange` switches back to idle battle on that frame again. |
+| **Files / systems** | `ATheGoldenAgeChestMonster`. |
+| **Reason** | Requested revert of the previous change. |
+| **Follow-up** | Live Coding. Walk out of range mid-swing and confirm idle starts immediately. |
+
+### 2026-11-08 — Chest Monster finishes the current attack cycle
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | When the last player leaves `DetectionRange`, Attack 01 stops looping and plays out the cycle already in progress, then idle battle resumes. Re-entering range during that cycle makes the attack loop again. |
+| **Files / systems** | `ATheGoldenAgeChestMonster::HandleNearbyPlayers`. |
+| **Reason** | Leaving range was cutting the swing off on the same frame. |
+| **Follow-up** | Reverted the same day. Do not treat this behavior as current. |
+
+### 2026-11-08 — Shared monster detection; Chest Monster keeps the attack
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `ATheGoldenAgeMonster` (abstract) owns `DetectionRange` and each tick calls `HandleNearbyPlayers` with every actor tagged `Player` inside that horizontal range. `ATheGoldenAgeChestMonster` now subclasses it and still faces the closest player, looping Attack 01, or idle battle when the list is empty. |
+| **Files / systems** | `TheGoldenAgeMonster.h/.cpp`; `TheGoldenAgeChestMonster` reparented in C++. |
+| **Reason** | Later monsters should share player detection and supply their own reaction. |
+| **Follow-up** | Live Coding. `BP_ChestMonsterPolyart` is already parented to `ATheGoldenAgeChestMonster`. Place it in `Lvl_Main` to test. No damage yet. |
+
+### 2026-11-08 — Chest Monster faces nearby players and loops Attack 01
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Every `ATheGoldenAgePlayerCharacter` has actor tag `Player`. `ATheGoldenAgeChestMonster` finds the closest tagged actor inside `DetectionRange` (default 500, horizontal), yaws toward that actor, and loops `ChestMonster_Attack01_ANIM`. With nobody in range it loops idle battle. |
+| **Files / systems** | `TheGoldenAgeChestMonster.h/.cpp`; `TheGoldenAgePlayerCharacter` tag; `BP_TinyHeroPolyart` tag `Player`; `ChestMonster_Attack01_ANIM` `bLoop`. |
+| **Reason** | First monster reaction: proximity, facing, and one attack clip, with range editable on the Blueprint. |
+| **Follow-up** | After Live Coding, reparent `BP_ChestMonsterPolyart` from `ACharacter` to `ATheGoldenAgeChestMonster` and save. Place it in `Lvl_Main` to test. No damage yet. |
+
+### 2026-11-08 — Chest Monster Blueprint (polyart, idle battle)
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added `BP_ChestMonsterPolyart` under `Content/_Main/Blueprint/`. It is an `ACharacter` using the polyart Chest Monster skeletal mesh, that mesh's physics asset, and a looping idle battle clip. No AI or other animations. |
+| **Files / systems** | `Content/_Main/Blueprint/BP_ChestMonsterPolyart`; `ChestMonster_IdleBattle_ANIM` (`bLoop` set true). Mesh and physics asset unchanged (already referenced `ChestMonster_Skeleton` and `ChestMonster_PhysicsAsset`). |
+| **Reason** | First monster Blueprint, visual only, so later AI can start from a placed character. |
+| **Follow-up** | Place it in `Lvl_Main` when a spawn point is chosen. Add move/attack clips and AI later. Polyart mesh material slot is `DefaultPBR_MAT` (pack import). |
 
 ### 2026-11-08 — User compiles manually; agents do not trigger Live Coding
 

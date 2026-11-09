@@ -30,6 +30,9 @@ class THEGOLDENAGE_API ATheGoldenAgePlayerCharacter : public ACharacter
 	GENERATED_BODY()
 
 public:
+	/** Actor tag present on every player character. Enemies use it to find players. */
+	static const FName PlayerActorTag;
+
 	ATheGoldenAgePlayerCharacter();
 
 	virtual void BeginPlay() override;
