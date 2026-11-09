@@ -228,7 +228,7 @@ TheGoldenAge.uproject
 Content/_Main/
     ├── Lvl_Main
     ├── Input/ (IA_Move, IMC_Default)
-    └── Blueprint/BP_ChestMonster, BP_Swarm08 (both children of ATheGoldenAgeChestMonster)
+    └── Blueprint/BP_ChestMonster (Trap), BP_GhostFish (Ghost), BP_Swarm08
 Content/MonsterForSurvivalGame/
     └── Mesh/Polyart + Animation/Polyart (ChestMonster and Swarm08 source assets)
 Content/RPGHeroSquad/
@@ -248,7 +248,7 @@ Config/
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
-| AI / NPCs | Shared player detection; Chest Monster and Swarm08 attack | **Partial** — `ATheGoldenAgeMonster` reports player-tagged actors inside `DetectionRange`. `ATheGoldenAgeChestMonster` faces the closest and sets `bIsAttacking`. Leaving range finishes the current attack cycle, then idle. `ABP_ChestMonster` and `ABP_Swarm08` play the clips. No pathfinding or damage. |
+| AI / NPCs | Shared player detection; Chest Monster and Ghostfish attack | **Partial** — `ATheGoldenAgeMonster` reports actors tagged `Player` inside `DetectionRange`. Role tags are not part of detection. The local Hero sees monsters tagged `Ghost`; the local Explorer sees monsters tagged `Trap`. `ATheGoldenAgeChestMonster` faces the closest player and sets `bIsAttacking`. Leaving range finishes the current attack cycle, then idle. No pathfinding or damage. |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
 | Multiplayer / replication | — | **Not configured** (design asks to consider net compatibility in new systems). |
@@ -262,15 +262,16 @@ Config/
 |-------|------|
 | `ATheGoldenAgeGameMode` | No default pawn. `RestartPlayer` does nothing; `UTheGoldenAgePlayerSync` possesses `BP_Hero` or `BP_Explorer` after login. |
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
-| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` (`PlayerActorTag`) on every instance. |
-| `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Response is up to the child. |
-| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until the attack sequence whose name contains `Attack` reaches its last frame, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
+| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. |
+| `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Detection collects tag `Player` only. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. |
+| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until the attack sequence whose name contains `Attack` reaches its last frame, then idle. Used by `BP_ChestMonster`, `BP_GhostFish`, and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
 
 **Blueprints / content:**
 
-- **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Mesh `SK_TinyHeroPolyart`, Tiny Hero battle in-place clips, sword/shield on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
-- **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
-- **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`.
+- **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Actor tags `Player` and `Hero`. Mesh `SK_TinyHeroPolyart`, Tiny Hero battle in-place clips, sword/shield on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
+- **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Actor tags `Player` and `Explorer`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
+- **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Actor tags `Trap` and `Monster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`. The placed actor has the same `Trap` and `Monster` tags.
+- **`BP_GhostFish`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgeChestMonster`. Actor tags `Ghost` and `Monster`. One instance is in `Lvl_Main` at (-360, 420, 70), west of the Chest Monster, with those tags. A hero sees it. An explorer does not.
 - **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
 - **`BP_Swarm08`** — `Content/_Main/Blueprint/`. Same parent, detection, facing, and capsule as `BP_ChestMonster`. Mesh is polyart `Swarm08_SK` with `ABP_Swarm08`. One instance is in `Lvl_Main` at (-30, 920, 70), 500 cm north of the Chest Monster.
 - **`ABP_Swarm08`** — `Content/_Main/Blueprint/`. Same graph as `ABP_ChestMonster` on polyart `Swarm08_SK_Skeleton`: `bIsAttacking` selects `Swarm08_Attack_Anim`, otherwise looping `Swarm08_Idle_Anim`. Attack Loop Animation is `bLoopAttack`. Only idle and attack are wired. The Anim Blueprint preview mesh is unset, so the animation editor viewport does not show the creature; the character Blueprint does.
@@ -320,7 +321,7 @@ Config/
 | Path | Notes |
 |------|--------|
 | `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** (only level in `_Main`) |
-| `Content/_Main/Blueprint/` | Gameplay Blueprints. `BP_ChestMonster` / `ABP_ChestMonster` and `BP_Swarm08` / `ABP_Swarm08` (idle and attack only). |
+| `Content/_Main/Blueprint/` | Gameplay Blueprints. `BP_ChestMonster` (`Trap`), `BP_GhostFish` (`Ghost`), `BP_Hero` (`Hero`), `BP_Explorer` (`Explorer`). Swarm08 idle/attack assets remain. |
 | `Content/_Main/Input/` | `IA_Move`, `IMC_Default`, and other Enhanced Input assets. |
 | `Content/MonsterForSurvivalGame/` | Imported monster pack (Polyart and PBR meshes, skeletons, physics assets, animations). **Use LFS on commit.** |
 | `Content/RPGHeroSquad/` | Imported character/animation content (Fab-style tree). **Use LFS on commit.** Verify licenses/attribution before shipping. |
@@ -536,7 +537,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
 | Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
 | Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
-| Monsters | `ATheGoldenAgeMonster` detection; Chest Monster and Swarm08 attack | No damage. One Chest Monster and one Swarm08 are in `Lvl_Main`. Swarm08 has idle and attack only. |
+| Monsters | `ATheGoldenAgeMonster` detection on tag `Player`; Hero sees `Ghost`, Explorer sees `Trap` | No damage. Chest Monster, Ghostfish, and Swarm08 are in `Lvl_Main`. Swarm08 has no `Monster` tag, so both roles still see it. |
 
 ### Known issues / technical debt
 
@@ -582,6 +583,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | 2026-11-08 | **C++ core + Blueprint children** for customized gameplay | Performance and reuse in C++; designer iteration in BP | Blueprint-only or duplicated logic in both layers | All future gameplay classes |
 | 2026-11-08 | Chest Monster clips live in **`ABP_ChestMonster`** | Gameplay sets `bIsAttacking`; the AnimGraph chooses and blends clips so later attacks are added there | Keep swapping `UAnimSequence` on a single-node mesh | Chest Monster, animation |
 | 2026-11-09 | Finish the current Attack 01 cycle by clearing **`bLoopAttack`** | The attack sequence player stops wrapping and holds its last frame; `bIsAttacking` then selects idle. Re-entering range sets `bLoopAttack` true again | State-machine transition, or cutting to idle on the frame the player leaves | Chest Monster, `ABP_ChestMonster` |
+| 2026-11-09 | Monster sight uses actor tags; detection stays on **`Player`** | `hero` sees `ghost`, `explorer` sees `trap`. Both creatures also have `monster`. Detection does not read role tags. | Per-role monster classes, or hiding by collision channel | `ATheGoldenAgeMonster`, `BP_Hero`, `BP_Explorer`, `BP_ChestMonster`, `BP_GhostFish` |
 | 2026-11-09 | Swarm08 reuses **`ATheGoldenAgeChestMonster`** | Idle/attack detection is the same; only the mesh and Anim Blueprint differ. The C++ class already finds a sequence whose name contains `Attack` | A new Swarm C++ class that copies the same tick logic | `BP_Swarm08`, `ABP_Swarm08` |
 | 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
@@ -593,6 +595,33 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Hero still saw the Chest Monster after login
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Monster visibility now uses the pawn that was just possessed, and the local pawn applies it again each tick. `AController::Possess` calls `PossessedBy` before `SetPawn`, so the old lookup still saw no local Hero and left every monster visible. |
+| **Files / systems** | `ATheGoldenAgeMonster::ApplyLocalViewerVisibility`; `ATheGoldenAgePlayerCharacter::PossessedBy` and the first local tick. |
+| **Reason** | Logging in as Hero still showed both the Chest Monster and Ghostfish. |
+| **Follow-up** | Live Coding, then stop PIE if it is running. Log in as Hero: Ghostfish visible, Chest Monster hidden. Log in as Explorer: the opposite. |
+
+### 2026-11-09 — Actor tags use capital case
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | The role and monster actor tags are `Hero`, `Explorer`, `Trap`, `Ghost`, and `Monster`, matching `Player`. |
+| **Files / systems** | `ATheGoldenAgePlayerCharacter`, `ATheGoldenAgeMonster`, `BP_Hero`, `BP_Explorer`, `BP_ChestMonster`, `BP_GhostFish`, placed actors in `Lvl_Main`. |
+| **Reason** | Tag names should use a capital first letter. |
+| **Follow-up** | Live Coding, then stop PIE if it is running. The behavior is unchanged because these are the same tags with new spelling. |
+
+### 2026-11-09 — Role tags hide the other monster
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Chest Monster is tagged `trap` and `monster`. Ghostfish is tagged `ghost` and `monster`. Hero is tagged `hero` (and `Player`). Explorer is tagged `explorer` (and `Player`). After the local pawn is possessed, a hero sees ghost monsters and an explorer sees trap monsters. Monster detection still gathers only actors tagged `Player`. |
+| **Files / systems** | `ATheGoldenAgeMonster::ApplyLocalViewerVisibility`; `ATheGoldenAgePlayerCharacter` role tags; `BP_ChestMonster`, `BP_GhostFish`, `BP_Hero`, `BP_Explorer`; `Lvl_Main` Ghostfish at (370, 420, 70) and the placed Chest Monster tags. |
+| **Reason** | Each role should see only its monster type, while both roles remain detectable as players. |
+| **Follow-up** | Live Coding, then stop PIE if it is running and play `Lvl_Main`. Log in as Hero and confirm Ghostfish is visible and the Chest Monster is not. Log in as Explorer and confirm the opposite. Walk into either creature: it still faces and attacks a nearby `Player`, including the role that cannot see it. `BP_Swarm08` has none of these tags, so both roles still see it. Hidden monsters still collide. |
 
 ### 2026-11-09 — Swarm08 idle and attack
 

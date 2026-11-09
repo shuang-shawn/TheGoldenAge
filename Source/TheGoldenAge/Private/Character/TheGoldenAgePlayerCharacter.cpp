@@ -2,6 +2,8 @@
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
 
+#include "Character/TheGoldenAgeMonster.h"
+
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Animation/AnimSingleNodeInstance.h"
@@ -15,6 +17,8 @@
 #include "InputActionValue.h"
 
 const FName ATheGoldenAgePlayerCharacter::PlayerActorTag(TEXT("Player"));
+const FName ATheGoldenAgePlayerCharacter::HeroActorTag(TEXT("Hero"));
+const FName ATheGoldenAgePlayerCharacter::ExplorerActorTag(TEXT("Explorer"));
 
 ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 {
@@ -116,6 +120,14 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 
 	// A saved Blueprint tag list replaces the constructor value, so put the tag back on every instance.
 	Tags.AddUnique(PlayerActorTag);
+	if (GetClass()->GetName().Contains(TEXT("BP_Explorer")))
+	{
+		Tags.AddUnique(ExplorerActorTag);
+	}
+	else if (GetClass()->GetName().Contains(TEXT("BP_Hero")))
+	{
+		Tags.AddUnique(HeroActorTag);
+	}
 
 	if (!MoveAction)
 	{
@@ -129,6 +141,21 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 	{
 		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
 	}
+
+	if (IsLocallyControlled())
+	{
+		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	// Pass this pawn. The controller does not point at it until Possess returns.
+	if (IsLocallyControlled())
+	{
+		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
+	}
 }
 
 void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
@@ -137,6 +164,7 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 
 	if (IsLocallyControlled())
 	{
+		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
 		UpdateTopDownCameraOrientation(DeltaSeconds);
 		UpdateMovementFacing(DeltaSeconds);
 	}

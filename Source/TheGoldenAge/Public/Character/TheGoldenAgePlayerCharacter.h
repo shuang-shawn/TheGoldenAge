@@ -33,9 +33,16 @@ public:
 	/** Actor tag present on every player character. Enemies use it to find players. */
 	static const FName PlayerActorTag;
 
+	/** On BP_Hero. A Hero viewer can see monsters tagged Ghost. */
+	static const FName HeroActorTag;
+
+	/** On BP_Explorer. An Explorer viewer can see monsters tagged Trap. */
+	static const FName ExplorerActorTag;
+
 	ATheGoldenAgePlayerCharacter();
 
 	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 

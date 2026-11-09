@@ -7,8 +7,8 @@
 #include "TheGoldenAgeMonster.generated.h"
 
 /**
- * Shared monster base. Finds player-tagged actors inside DetectionRange and
- * leaves the response to child classes.
+ * Shared monster base. Finds actors tagged Player inside DetectionRange and
+ * leaves the response to child classes. Role tags do not affect detection.
  */
 UCLASS(Abstract)
 class THEGOLDENAGE_API ATheGoldenAgeMonster : public ACharacter
@@ -16,9 +16,26 @@ class THEGOLDENAGE_API ATheGoldenAgeMonster : public ACharacter
 	GENERATED_BODY()
 
 public:
+	/** Present on every monster. Viewer rules use this together with Trap or Ghost. */
+	static const FName MonsterActorTag;
+
+	/** Chest-style monsters. Explorer viewers can see this tag. */
+	static const FName TrapActorTag;
+
+	/** Ghost-style monsters. Hero viewers can see this tag. */
+	static const FName GhostActorTag;
+
 	ATheGoldenAgeMonster();
 
+	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	/**
+	 * Shows or hides monster-tagged actors for the local viewer.
+	 * A Hero sees Ghost. An Explorer sees Trap. Detection is unchanged.
+	 * Pass the possessed pawn: Possess assigns the controller pawn only after PossessedBy returns.
+	 */
+	static void ApplyLocalViewerVisibility(UWorld* World, const APawn* Viewer = nullptr);
 
 protected:
 	/** Horizontal distance from this actor to a player that counts as nearby. */
