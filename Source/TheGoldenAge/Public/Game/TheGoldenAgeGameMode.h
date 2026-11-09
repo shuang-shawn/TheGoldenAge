@@ -14,5 +14,5 @@ class THEGOLDENAGE_API ATheGoldenAgeGameMode : public AGameModeBase
 public:
 	ATheGoldenAgeGameMode();
 
-	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
+	virtual void RestartPlayer(AController* NewPlayer) override;
 };

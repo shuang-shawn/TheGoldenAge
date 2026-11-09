@@ -18,6 +18,13 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// Presence is owned by SpacetimeDB. Pawns are not replicated or auto-possessed.
+	bReplicates = false;
+	SetReplicates(false);
+	SetReplicateMovement(false);
+	AutoPossessPlayer = EAutoReceiveInput::Disabled;
+	AutoPossessAI = EAutoPossessAI::Disabled;
+
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 
 	bUseControllerRotationPitch = false;
