@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-08 (Git LFS & ignore rules)  
+**Last verified against codebase:** 2026-11-08 (gameplay design standards documented; repo still empty-template for gameplay code)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -18,6 +18,11 @@ This file is the **authoritative shared reference** for project state. It is not
 3. Inspect relevant source files, configs, and content to confirm documented information is still accurate.
 4. Consider how proposed changes affect other systems, content, or ongoing work.
 5. Follow established project conventions unless there is a clear technical reason to deviate (document the deviation and rationale in this file).
+6. Prefer extending existing C++ classes over duplicating systems.
+7. Use **Enhanced Input** for all player controls (see [Input architecture (design)](#input-architecture-design)).
+8. Keep core gameplay logic in C++; expose designer-facing customization to Blueprint where appropriate (see [C++ and Blueprint development philosophy](#c-and-blueprint-development-philosophy)).
+9. Follow existing naming conventions and folder organization; consider impact on other gameplay systems before changing architecture.
+10. Clearly distinguish **implemented** behaviour from **planned** design in code and in this document.
 
 ### While making changes
 
@@ -57,11 +62,11 @@ This file is the **authoritative shared reference** for project state. It is not
 | Item | Status |
 |------|--------|
 | **Project name** | TheGoldenAge |
-| **Game concept & genre** | **Unknown / unverified.** No design doc, README, or gameplay code. Title alone does not imply a verified theme. |
-| **Core gameplay experience** | **Not implemented.** Default map is an empty template-style level (lighting, floor, `PlayerStart`). |
+| **Game concept & genre** | **[Design]** **3D top-down action RPG** — camera and moment-to-moment feel inspired by *Hades*; skill targeting and casting inspired by MOBAs (e.g. *League of Legends*). Full requirements: [Gameplay design requirements](#gameplay-design-requirements). **Not implemented in code yet.** |
+| **Core gameplay experience** | **[Design]** Top-down follow camera, WASD movement with movement-based facing, mouse-based combat/ability targeting (not continuous cursor-facing). **[Impl]** Default map `Lvl_Main` is an empty template-style level (lighting, floor, `PlayerStart`); no custom Pawn or controls. |
 | **Target platforms** | **Desktop** per `Config/DefaultEngine.ini` (`HardwareTargetingSettings`). Renderer configs also reference mobile/Linux/Mac shader paths (template defaults). **Shipping targets not formally defined.** |
 | **Unreal Engine version** | **5.8** (`EngineAssociation` in `TheGoldenAge.uproject`). Editor log indicates **5.8.3** install at `K:/UE_5.8` (environment-specific; not required for all developers). |
-| **Development stage** | **Early prototype / post-template setup** — C++ module with no game classes, minimal content, single git commit, no gameplay systems. |
+| **Development stage** | **Early prototype / post-template setup** — gameplay design direction documented here; C++ module has no game classes; `Content/RPGHeroSquad/` provides third-party hero assets locally; no gameplay systems in `Source/`. |
 | **Primary languages** | C++ (game module shell), C# (UnrealBuildTool targets/rules), Blueprints (**none in repo on disk**), ini configuration. |
 
 ### Main technologies and dependencies
@@ -81,11 +86,132 @@ This file is the **authoritative shared reference** for project state. It is not
 
 ---
 
+## Gameplay design requirements
+
+**Legend:** **[Design]** = intended product requirement (may be unimplemented). **[Impl]** = verified in repository or config. When both apply, each is called out separately.
+
+### Perspective and camera
+
+| Requirement | Status |
+|-------------|--------|
+| Fully 3D world and characters | **[Design]** |
+| Top-down camera, *Hades*-style perspective | **[Design]** |
+| Camera continuously follows the player character | **[Design]** |
+| Player character remains primary camera focus | **[Design]** |
+| Smooth camera follow (no abrupt snapping) | **[Design]** |
+| Consistent top-down angle and distance unless intentionally changed | **[Design]** |
+
+**[Impl]** No custom camera actor, spring arm, or follow logic in `Source/`. PIE uses engine defaults on `Lvl_Main`.
+
+### Player character controls
+
+#### Movement [Design]
+
+- **WASD** drives movement; **8-directional** (cardinal + diagonals).
+- Diagonal input must be **normalized** so diagonal speed matches cardinal speed.
+- Movement must feel responsive for real-time action combat.
+
+**[Impl]** Not implemented (no Pawn / movement component setup in project code).
+
+#### Character facing and rotation [Design]
+
+**Default (locomotion):**
+
+- Facing follows **movement direction** while moving.
+- Mouse cursor does **not** continuously rotate the character.
+- When idle, keep the **last valid** facing direction.
+- Rotation should be smooth and responsive.
+
+**Combat and skill casting:**
+
+- Mouse cursor defines **targeting direction** for attacks and abilities.
+- On attack, ability, or other directional combat action, character turns toward cursor **world position** on the playable ground plane (screen cursor → ground projection).
+- Character may **move independently** of aim direction where mechanics allow.
+- Do **not** continuously rotate toward the cursor while idle or moving.
+
+**Examples (design intent):**
+
+1. Move north (W) → face north.  
+2. Stop → retain last facing.  
+3. Move north while aiming east → face east when the ability starts.  
+4. Directional projectile → travels toward cursor target on ground plane.
+
+#### Future combat and skill system [Design]
+
+Architecture should support (without implementing all systems upfront):
+
+- Directional melee, ranged/projectiles, targeted and directional abilities, AOE, mouse-based casting, per-skill targeting rules.
+- **Reusable targeting** shared across abilities; **no tight coupling** between basic movement and cursor targeting.
+
+### Input architecture (design)
+
+**Policy:** All player controls use Unreal **Enhanced Input** — `UInputAction` and `UInputMappingContext` assets; bind via Player Controller or Character input setup; **no** direct keyboard/mouse polling in gameplay logic.
+
+| Input | Action | Behaviour |
+|-------|--------|-----------|
+| WASD | Movement | 8-directional movement |
+| Mouse cursor | Targeting position | World-space ground target for combat/abilities |
+| Future mouse buttons | Attack / skills | Fire actions using cursor target |
+
+**Separation of responsibilities [Design]:**
+
+1. **Player Controller** — cursor screen position; project to ground plane; expose targeting to gameplay; **no** direct rotation/combat logic.  
+2. **Combat / Ability system** — consume targeting; per-skill behaviour; request rotation when needed.  
+3. **Player Character** — execute movement, movement-facing, and externally requested combat rotation; **no** cursor polling or skill targeting logic.
+
+Movement input must **not** auto-rotate toward the mouse. Modules (cursor targeting, rotation, movement, skill execution) must evolve independently.
+
+**[Impl]** `DefaultPlayerInputClass` / `DefaultInputComponentClass` → Enhanced Input; `EnhancedInput` module in `TheGoldenAge.Build.cs`. **No** `InputAction` / `InputMappingContext` assets in tracked content; no bindings in C++.
+
+**Recommended content paths (when implementing):** e.g. `Content/_Main/Input/` with naming `IA_*`, `IMC_*` — adopt consistently when first assets are created.
+
+### C++ and Blueprint development philosophy
+
+**[Design — team direction]**
+
+1. Choose an appropriate Unreal parent class (`ACharacter`, `APlayerController`, `AActor`, `UActorComponent`, `UUserWidget`, `AGameModeBase`, etc.).
+2. Implement **core, reusable logic in C++**.
+3. Expose properties, functions, and events to Blueprint where designers need them.
+4. Create **Blueprint child classes** for tuning, assembly, and level-specific setup — avoid duplicating core logic in Blueprint.
+
+| Layer | Responsibility |
+|-------|----------------|
+| **C++** | Core gameplay, systems/components, movement, input integration, networking, performance-critical logic |
+| **Blueprint** | Configuring exposed properties, child class variants, presentation/event-driven behaviour, animation/UI hooks, designer customization |
+
+Do not add redundant custom C++ when an existing project or engine class already suffices.
+
+### Code quality and engineering practices [Design]
+
+Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable types; clear names; focused classes; minimal Blueprint surface; document non-obvious logic; handle edge cases; consider multiplayer when designing gameplay systems; avoid unnecessary plugins/dependencies. Match scope to current needs without blocking future expansion.
+
+### Content and source folder structure [Design]
+
+- Logical C++ modules/directories under `Source/TheGoldenAge/`.
+- Blueprint assets grouped by system (player, enemies, UI, input, etc.).
+- Consistent naming across C++, Blueprints, and assets.
+- Inspect existing layout before adding folders; **do not** reorganize the whole project without cause.
+
+**[Impl]** Maps under `Content/_Main/`; imported squad content under `Content/RPGHeroSquad/` (Fab-style tree). No `Content/_Main/Characters` or `Input/` yet.
+
+### Intended gameplay architecture (summary)
+
+| System | Intended responsibility | Implementation status |
+|--------|-------------------------|------------------------|
+| **Player Controller** | Enhanced Input setup; cursor → ground target; expose targeting | **Planned** |
+| **Player Character** | Movement, movement-facing, combat rotation requests | **Planned** |
+| **Camera system** | Top-down follow, smooth tracking | **Planned** |
+| **Input system** | `IA_*` / `IMC_*` assets, mappings | **Partial** — engine Enhanced Input defaults only |
+| **Combat / abilities** | Targeting consumption, per-skill rules | **Planned** |
+| **Gameplay components** | Reusable behaviour where appropriate | **Planned** |
+
+---
+
 ## B. Architecture Overview
 
 ### High-level architecture (current)
 
-The project has **no custom gameplay architecture yet**. Structure matches a **blank C++ game template** renamed from `TP_Blank`:
+The project has **no custom gameplay architecture yet** in code. **[Design]** target architecture is documented in [Gameplay design requirements](#gameplay-design-requirements) (Player Controller, Character, camera, Enhanced Input, modular combat targeting). Structure today matches a **blank C++ game template** renamed from `TP_Blank`:
 
 ```
 TheGoldenAge.uproject
@@ -103,13 +229,16 @@ Config/
 
 | System | Responsibility | Status |
 |--------|----------------|--------|
-| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Not implemented** (engine defaults only) |
-| Input | Player controls | **Enhanced Input configured**; no project assets |
+| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Not implemented** (engine defaults only). **[Design]** Custom GameMode + top-down Character/Pawn. |
+| Camera | Top-down follow camera | **Planned** — see [Perspective and camera](#perspective-and-camera). |
+| Player movement & facing | WASD, movement-facing, combat rotation | **Planned** — see [Player character controls](#player-character-controls). |
+| Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — default Enhanced Input classes only; **no** `IA_*` / `IMC_*` assets. |
+| Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
 | AI / NPCs | — | **Not implemented** |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
-| Multiplayer / replication | — | **Not configured** |
+| Multiplayer / replication | — | **Not configured** (design asks to consider net compatibility in new systems). |
 | World partition / streaming | Commandlet class referenced in config | **No evidence of partitioned main level content** |
 
 ### C++ classes and Blueprints
@@ -191,7 +320,7 @@ Source/
 3. `Config/DefaultEngine.ini` — maps, rendering, redirects from `TP_Blank`  
 4. `Config/DefaultInput.ini` — Enhanced Input defaults  
 5. `Config/DefaultGame.ini` — project ID, any game-specific CVars  
-6. `PROJECT_CONTEXT.md` (this file)
+6. `PROJECT_CONTEXT.md` (this file) — including [Gameplay design requirements](#gameplay-design-requirements) before gameplay work  
 
 ### Project rename lineage
 
@@ -230,7 +359,16 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 - `DefaultInputComponentClass` → `EnhancedInputComponent`
 - **No** `ActionMappings` / `AxisMappings` (legacy) or references to `InputAction` / `InputMappingContext` assets in config.
 
-**Expected pattern when implementing controls:** Create Enhanced Input assets under a consistent content folder (e.g. `Content/_Main/Input/` — **convention not yet established**), bind in PlayerController or Pawn C++/Blueprint.
+**Design requirements (see [Input architecture (design)](#input-architecture-design)):**
+
+- All player controls via **Enhanced Input** (`UInputAction`, `UInputMappingContext`); no gameplay key polling.
+- **Player Controller:** cursor screen → ground-plane world position; expose targeting to combat/abilities.
+- **Character:** movement + movement-facing; rotate toward target only when combat/ability requests it.
+- Initial mapping: WASD → movement; mouse → targeting position; future mouse buttons → attacks/skills.
+
+**Implementation status:** Config and module dependency only — **no** Input Action / Mapping Context assets in VCS; no C++ input bindings.
+
+**Expected pattern when implementing:** Create Enhanced Input assets under a consistent content folder (e.g. `Content/_Main/Input/` with `IA_*`, `IMC_*`), bind in custom `APlayerController` / `ACharacter` C++ base with Blueprint children for tuning.
 
 ### Rendering (project defaults)
 
@@ -277,14 +415,22 @@ These support **editor automation**, not packaged game features, unless explicit
 | **Build.cs comments** | Epic template pattern for optional Slate / OnlineSubsystem |
 | **Git** | Standard UE `.gitignore` (binaries, intermediate, saved, etc.) |
 
-### Not yet established (recommendations — not adopted until team agrees)
+### Adopted design conventions (2026-11-08)
 
-Record here when the team **adopts** them; until then they are suggestions only:
+Documented in [Gameplay design requirements](#gameplay-design-requirements); apply to new gameplay work:
 
-- **C++ vs Blueprint:** e.g. core types and performance-critical logic in C++; designer-facing behavior in Blueprint — **no team rule yet**.
-- **Content folder taxonomy:** e.g. `Content/_Main/Characters`, `.../UI` — **not present**.
-- **Input asset naming:** `IA_*`, `IMC_*` — **not present**.
-- **Coding standard:** Follow Epic UE C++ conventions unless `.editorconfig` / clang-format is added.
+| Area | Convention |
+|------|------------|
+| **C++ vs Blueprint** | Core gameplay and reusable systems in C++; Blueprint children for configuration and designer-facing behaviour |
+| **Input** | Enhanced Input only; modular targeting (Controller) vs rotation/movement (Character) vs abilities (combat system) |
+| **Code quality** | Epic naming/macros; focused classes; minimal unnecessary Blueprint exposure; consider multiplayer |
+| **Content folders** | Group by system; prefer `Content/_Main/Input/` (`IA_*`, `IMC_*`) when input assets are added |
+
+### Not yet established
+
+- **Content folder taxonomy** beyond `_Main` and `RPGHeroSquad/` (e.g. `Characters`, `UI`) — **not present in repo**.
+- **Coding standard automation:** `.editorconfig` / clang-format — **not added** (still follow Epic C++ style manually).
+- **Camera class naming/location** — decide when first camera C++ or Blueprint is added.
 
 ### Plugin and dependency management
 
@@ -325,9 +471,23 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 
 - **None documented in codebase** (no TODO/FIXME in `Source/`).
 
-### Planned
+### Planned gameplay (design documented, not coded)
 
-- **Unknown** — no roadmap in repo.
+See [Gameplay design requirements](#gameplay-design-requirements). High-level order (flexible):
+
+- [ ] Custom `AGameModeBase` / default pawn assignment for top-down play on `Lvl_Main`
+- [ ] `APlayerController` (C++) — Enhanced Input context, cursor → ground targeting API
+- [ ] `ACharacter` (C++) — WASD 8-dir normalized movement, movement-facing, combat rotation hook
+- [ ] Top-down follow camera (component or dedicated camera manager)
+- [ ] Enhanced Input assets: `IA_Move`, `IMC_Default` (names illustrative), under `Content/_Main/Input/`
+- [ ] Combat/ability targeting interface (stub only until first ability) — no full combat system required yet
+
+### Partially implemented
+
+| Item | Done | Outstanding |
+|------|------|-------------|
+| Enhanced Input stack | Default `EnhancedPlayerInput` / `EnhancedInputComponent`; module dependency | Project `IA_*` / `IMC_*` assets and bindings |
+| Third-party hero content | Local `Content/RPGHeroSquad/` (meshes, anims, sample Character BPs) | Not committed to remote; not wired to project control scheme |
 
 ### Known issues / technical debt
 
@@ -351,9 +511,9 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 
 | Decision | Notes |
 |----------|--------|
-| Game genre, camera, core loop | **Undecided** (no design doc) |
-| C++ vs Blueprint split | **Undecided** |
-| Multiplayer scope | **Undecided** (no net config) |
+| Game genre, camera, core loop | **Decided at design level** — 3D top-down action RPG; see [Gameplay design requirements](#gameplay-design-requirements). **Not implemented.** |
+| C++ vs Blueprint split | **Decided** — C++ foundation, Blueprint customization (see [C++ and Blueprint development philosophy](#c-and-blueprint-development-philosophy)) |
+| Multiplayer scope | **Undecided** (no net config); new gameplay code should avoid unnecessary single-player assumptions |
 | Whether to adopt CommonUI | **Undecided** |
 | Target shipping platforms beyond Desktop | **Undecided** |
 
@@ -368,6 +528,9 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | Unknown (config) | **Lvl_Main** as default game/editor map | Central main level under `Content/_Main/` | Other maps | Maps, PIE, packaging |
 | Unknown (config) | **Lumen + Nanite + RT** project renderer settings | UE 5.8 template-style defaults | Scalable/mobile-first renderer profile | Performance, art pipeline |
 | 2026-11-08 | Maintain **`PROJECT_CONTEXT.md`** as shared agent/developer knowledge base | Multi-agent continuity and onboarding | Wiki-only or no doc | Process / all systems |
+| 2026-11-08 | **3D top-down action RPG** direction (*Hades*-style camera; MOBA-inspired targeting) | Establishes consistent vision for camera, movement, facing, and future combat | Third-person action, twin-stick without ground targeting, etc. | Camera, Character, Input, combat (future) |
+| 2026-11-08 | **Enhanced Input only** for player controls; modular targeting architecture | UE modern input; separates movement, cursor target, and abilities | Legacy mappings; cursor-driven locomotion rotation | Player Controller, Character, Input assets |
+| 2026-11-08 | **C++ core + Blueprint children** for customized gameplay | Performance and reuse in C++; designer iteration in BP | Blueprint-only or duplicated logic in both layers | All future gameplay classes |
 | 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
 
@@ -378,6 +541,16 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-08 — Document gameplay design and development standards
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Expanded `PROJECT_CONTEXT.md` with intended 3D top-down action RPG perspective, *Hades*-inspired camera, *Hades*/MOBA hybrid controls (WASD movement-facing, mouse ground targeting), Enhanced Input policy, C++/Blueprint split, code quality rules, folder guidance, and system responsibilities. Distinguished **[Design]** from **[Impl]** throughout. |
+| **Files / systems** | `PROJECT_CONTEXT.md` only (no gameplay code changes). |
+| **Reason** | Align agents and developers on long-term input architecture and implementation conventions before first gameplay classes land. |
+| **Implementation notes** | Verified: `Source/` still has no `UCLASS` gameplay types; Enhanced Input defaults in config/Build.cs only; no project Input Action assets in Git. |
+| **Follow-up** | Implement Player Controller, Character, camera, and first `IA_*` / `IMC_*` assets per [Planned gameplay](#planned-gameplay-design-documented-not-coded). |
 
 ### 2026-11-08 — Remove unused `Lvl_M` map
 
@@ -521,6 +694,10 @@ git commit -m "Stop tracking Rider .idea metadata"
 |----------|--------|
 | Default map? | `Content/_Main/Lvl_Main` |
 | Game module? | `Source/TheGoldenAge/` |
+| Intended genre / camera? | **3D top-down action RPG** (*Hades*-style); [Gameplay design requirements](#gameplay-design-requirements) |
+| Player controls (design)? | WASD movement; mouse ground targeting for combat; no idle cursor-facing |
+| Input system? | **Enhanced Input** (project assets **not** created yet) |
+| C++ vs Blueprint? | C++ core; Blueprint children for tuning |
 | Any custom C++ gameplay classes? | **No** |
 | Multiplayer? | **Not configured** |
 | Where to log agent work? | [Development Change Log](#h-development-change-log) |
