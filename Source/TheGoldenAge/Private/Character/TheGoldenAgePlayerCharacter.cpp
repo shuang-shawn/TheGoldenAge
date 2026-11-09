@@ -2,6 +2,7 @@
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
 
+#include "Character/TheGoldenAgeAttackAnimConstants.h"
 #include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgeMonster.h"
 #include "Player/TheGoldenAgePlayerController.h"
@@ -28,8 +29,6 @@
 
 namespace
 {
-constexpr float AttackEndToleranceSeconds = 0.001f;
-
 FAnimNode_SequencePlayer* FindHeroAttackSequencePlayer(UAnimInstance* AnimInstance, const UAnimSequenceBase* ExpectedAttackSequence)
 {
 	const IAnimClassInterface* AnimClass = AnimInstance
@@ -670,7 +669,7 @@ void ATheGoldenAgePlayerCharacter::UpdateHeroAttackAnimation(float DeltaSeconds)
 		FAnimNode_SequencePlayer* AttackPlayer = FindHeroAttackSequencePlayer(AnimInstance, HeroAttackSequence);
 
 		bool bFinished = ExpectedDuration > KINDA_SMALL_NUMBER
-			&& AttackElapsedSeconds >= ExpectedDuration - AttackEndToleranceSeconds;
+			&& AttackElapsedSeconds >= ExpectedDuration - TheGoldenAgeAttackAnim::AttackEndToleranceSeconds;
 
 		if (AttackPlayer)
 		{
@@ -696,7 +695,7 @@ void ATheGoldenAgePlayerCharacter::UpdateHeroAttackAnimation(float DeltaSeconds)
 
 			if (!bFinished && ExpectedDuration > KINDA_SMALL_NUMBER)
 			{
-				bFinished = AttackElapsedSeconds >= ExpectedDuration - AttackEndToleranceSeconds;
+				bFinished = AttackElapsedSeconds >= ExpectedDuration - TheGoldenAgeAttackAnim::AttackEndToleranceSeconds;
 			}
 		}
 		else
@@ -754,7 +753,7 @@ void ATheGoldenAgePlayerCharacter::TryHeroAttackHit(float AttackPlaybackTime, fl
 	}
 
 	const float HitTime = EffectiveLength * HeroAttackHitTimeNormalized;
-	if (AttackPlaybackTime + AttackEndToleranceSeconds < HitTime)
+	if (AttackPlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < HitTime)
 	{
 		return;
 	}
@@ -823,8 +822,8 @@ bool ATheGoldenAgePlayerCharacter::HasCurrentAttackFinished(float PlaybackTime, 
 		return true;
 	}
 
-	const bool bReachedEnd = PlaybackTime >= PlayLength - AttackEndToleranceSeconds;
-	const bool bWrapped = bHasAttackSample && PlaybackTime + AttackEndToleranceSeconds < AttackSampleTime;
+	const bool bReachedEnd = PlaybackTime >= PlayLength - TheGoldenAgeAttackAnim::AttackEndToleranceSeconds;
+	const bool bWrapped = bHasAttackSample && PlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < AttackSampleTime;
 	return bReachedEnd || bWrapped;
 }
 

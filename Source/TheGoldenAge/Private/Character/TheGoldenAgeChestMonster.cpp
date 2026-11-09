@@ -2,6 +2,7 @@
 
 #include "Character/TheGoldenAgeChestMonster.h"
 
+#include "Character/TheGoldenAgeAttackAnimConstants.h"
 #include "Animation/AnimClassInterface.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimNode_SequencePlayer.h"
@@ -11,8 +12,6 @@
 
 namespace
 {
-constexpr float AttackEndToleranceSeconds = 0.001f;
-
 FAnimNode_SequencePlayer* FindAttackSequencePlayer(UAnimInstance* AnimInstance)
 {
 	const IAnimClassInterface* AnimClass = AnimInstance
@@ -103,8 +102,8 @@ bool ATheGoldenAgeChestMonster::HasCurrentAttackFinished(float PlaybackTime, flo
 	}
 
 	// Non-looping playback clamps on the final frame. A wrap means that frame was already passed.
-	const bool bReachedEnd = PlaybackTime >= PlayLength - AttackEndToleranceSeconds;
-	const bool bWrapped = bHasAttackSample && PlaybackTime + AttackEndToleranceSeconds < AttackSampleTime;
+	const bool bReachedEnd = PlaybackTime >= PlayLength - TheGoldenAgeAttackAnim::AttackEndToleranceSeconds;
+	const bool bWrapped = bHasAttackSample && PlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < AttackSampleTime;
 	return bReachedEnd || bWrapped;
 }
 

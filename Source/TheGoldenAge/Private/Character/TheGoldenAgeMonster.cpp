@@ -2,6 +2,7 @@
 
 #include "Character/TheGoldenAgeMonster.h"
 
+#include "Character/TheGoldenAgeAttackAnimConstants.h"
 #include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgePlayerCharacter.h"
 #include "Spacetime/TheGoldenAgeMonsterSync.h"
@@ -23,7 +24,6 @@ namespace
 constexpr double RenderDelaySeconds = 0.1;
 constexpr float RenderSnapDistance = 500.f;
 constexpr int32 MaxSnapshots = 32;
-constexpr float AttackEndToleranceSeconds = 0.001f;
 }
 
 ATheGoldenAgeMonster::ATheGoldenAgeMonster()
@@ -294,7 +294,7 @@ void ATheGoldenAgeMonster::TryMonsterAttackHit(float AttackPlaybackTime, float A
 		return;
 	}
 
-	if (bHasMonsterAttackHitSample && AttackPlaybackTime + AttackEndToleranceSeconds < MonsterAttackHitSampleTime)
+	if (bHasMonsterAttackHitSample && AttackPlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < MonsterAttackHitSampleTime)
 	{
 		bMonsterAttackHitApplied = false;
 	}
@@ -312,7 +312,7 @@ void ATheGoldenAgeMonster::TryMonsterAttackHit(float AttackPlaybackTime, float A
 	}
 
 	const float HitTime = AttackPlayLength * MonsterAttackHitTimeNormalized;
-	if (AttackPlaybackTime + AttackEndToleranceSeconds < HitTime)
+	if (AttackPlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < HitTime)
 	{
 		return;
 	}

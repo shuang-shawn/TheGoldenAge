@@ -627,6 +627,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 
 Entries are **newest first**. Preserve all history.
 
+### 2026-11-09 — Shared attack anim tolerance constant (unity build)
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `AttackEndToleranceSeconds` moved to `Source/TheGoldenAge/Public/Character/TheGoldenAgeAttackAnimConstants.h` (`TheGoldenAgeAttackAnim` namespace, `inline constexpr`) so unity builds do not merge duplicate anonymous-namespace symbols across `TheGoldenAgeMonster`, `TheGoldenAgePlayerCharacter`, and `TheGoldenAgeChestMonster` translation units. |
+| **Files / systems** | New header; `TheGoldenAgeMonster.cpp`, `TheGoldenAgePlayerCharacter.cpp`, `TheGoldenAgeChestMonster.cpp`, `TheGoldenAgeGhostFish.cpp`. |
+| **Reason** | MSVC C2374/C2086 redefinition when several `.cpp` files defined the same name inside `namespace { }` in one unity blob. |
+| **Follow-up** | Live Coding; confirm C++ build succeeds. |
+
 ### 2026-11-09 — Stop monster_tick when nobody is online
 
 | Field | Detail |

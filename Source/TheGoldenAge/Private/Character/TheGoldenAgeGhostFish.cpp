@@ -2,6 +2,7 @@
 
 #include "Character/TheGoldenAgeGhostFish.h"
 
+#include "Character/TheGoldenAgeAttackAnimConstants.h"
 #include "Animation/AnimClassInterface.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimNode_SequencePlayer.h"
@@ -11,8 +12,6 @@
 
 namespace GhostFishAnim
 {
-constexpr float AttackEndToleranceSeconds = 0.001f;
-
 FAnimNode_SequencePlayer* FindAttackSequencePlayer(UAnimInstance* AnimInstance)
 {
 	const IAnimClassInterface* AnimClass = AnimInstance
@@ -108,8 +107,8 @@ bool ATheGoldenAgeGhostFish::HasCurrentAttackFinished(float PlaybackTime, float 
 	}
 
 	// Non-looping playback clamps on the final frame. A wrap means that frame was already passed.
-	const bool bReachedEnd = PlaybackTime >= PlayLength - GhostFishAnim::AttackEndToleranceSeconds;
-	const bool bWrapped = bHasAttackSample && PlaybackTime + GhostFishAnim::AttackEndToleranceSeconds < AttackSampleTime;
+	const bool bReachedEnd = PlaybackTime >= PlayLength - TheGoldenAgeAttackAnim::AttackEndToleranceSeconds;
+	const bool bWrapped = bHasAttackSample && PlaybackTime + TheGoldenAgeAttackAnim::AttackEndToleranceSeconds < AttackSampleTime;
 	return bReachedEnd || bWrapped;
 }
 

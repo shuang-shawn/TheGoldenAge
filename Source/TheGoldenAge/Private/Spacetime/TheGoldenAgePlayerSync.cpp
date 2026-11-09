@@ -903,7 +903,8 @@ void UTheGoldenAgePlayerSync::SendLocalTransform()
 		bIsAttacking = PlayerCharacter->ActorHasTag(ATheGoldenAgePlayerCharacter::HeroActorTag)
 			&& PlayerCharacter->IsAttackingForReplication();
 	}
-
+	
+	// upload self data to spacetimedb
 	Conn->Reducers->UpdatePlayerTransform(Position, DbRotation, bIsAttacking);
 }
 
@@ -1192,6 +1193,8 @@ void UTheGoldenAgePlayerSync::ApplyPlayerRow(const FPlayerType& Row)
 
 	const FVector Location = ResolvePlacementLocation(Row, Pawn);
 	const FRotator Rotation = ResolveSpawnRotation(Row);
+	
+	// update other players from database broadcast
 	Pawn->TeleportTo(Location, Rotation);
 	if (bRespawned)
 	{
