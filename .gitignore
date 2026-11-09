@@ -8,7 +8,9 @@
 Thumbs.db
 
 # Local AI agent / MCP config (machine-specific; not part of the game project)
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .codex/
 .gemini/
 .mcp.json

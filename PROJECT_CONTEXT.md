@@ -13,6 +13,8 @@ This file is the **authoritative shared reference** for project state. It is not
 
 ### Before making any changes
 
+Cursor always applies `.cursor/rules/project-context.mdc`: read this file before each task, and update it after each task.
+
 1. Read `PROJECT_CONTEXT.md` in its entirety before starting development work.
 2. Use it to understand architecture, conventions, existing implementations, and technical decisions.
 3. Inspect relevant source files, configs, and content to confirm documented information is still accurate.
@@ -295,7 +297,7 @@ Config/
 | `Config/` | Default engine, game, input, editor settings |
 | `Content/` | Game assets (maps tracked; `RPGHeroSquad/` pending first LFS commit) |
 | `.gitattributes` | Git LFS pointer rules for UE and media binaries |
-| `.gitignore` | UE generated dirs + local IDE/MCP exclusions |
+| `.gitignore` | UE generated dirs + local IDE/MCP exclusions. `.cursor/*` is ignored; `.cursor/rules/` is tracked. |
 | `Plugins/` | **Absent** — no project-local plugins |
 | `Binaries/`, `Intermediate/`, `Saved/`, `DerivedDataCache/` | Generated / local (largely gitignored) |
 | `TheGoldenAge.sln` / `.slnx`, `Automation_TheGoldenAge.sln(x)` | Generated IDE solutions |
@@ -572,6 +574,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-08 — Always-on rule to maintain PROJECT_CONTEXT.md
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added `.cursor/rules/project-context.mdc` (`alwaysApply: true`). Before each task, read `PROJECT_CONTEXT.md`. After each task, update it with the relevant result. |
+| **Files / systems** | `.cursor/rules/project-context.mdc`, `.gitignore` (track `.cursor/rules/` only), `PROJECT_CONTEXT.md`. |
+| **Reason** | Make the existing context workflow automatic for every agent task, and keep the rule in the repo. |
+| **Follow-up** | None. |
 
 ### 2026-11-08 — Require Live Coding compile after each task
 

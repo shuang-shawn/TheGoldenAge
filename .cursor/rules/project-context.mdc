@@ -1,0 +1,23 @@
+---
+description: Read PROJECT_CONTEXT.md before each task and update it afterward
+alwaysApply: true
+---
+
+# Project context
+
+`PROJECT_CONTEXT.md` at the repository root is the shared project reference.
+
+## Before each task
+
+1. Read `PROJECT_CONTEXT.md` before investigating or editing.
+2. Use the sections that apply to the task: architecture, conventions, current status, and technical decisions.
+3. When the task depends on a documented fact, confirm it against the code or assets.
+
+## After each task
+
+1. Update `PROJECT_CONTEXT.md` with what this task changed: behavior, important files, decisions, and known limitations.
+2. Add a Development Change Log entry when the change is meaningful.
+3. Edit the relevant sections. Do not rewrite the file for a small change, and do not delete existing change-log history.
+4. Leave the document matching the repo. Do not record secrets (tokens, passwords, credentials).
+
+A question that does not change the repo still gets a context update when the answer changes how later work should be done. Skip the file edit only when the document is already accurate for that task.
