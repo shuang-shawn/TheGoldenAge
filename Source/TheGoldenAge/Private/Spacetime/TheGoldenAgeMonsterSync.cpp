@@ -3,10 +3,8 @@
 #include "Spacetime/TheGoldenAgeMonsterSync.h"
 
 #include "Character/TheGoldenAgeMonster.h"
+#include "Game/TheGoldenAgeGameMode.h"
 #include "ModuleBindings/SpacetimeDBClient.g.h"
-
-const TCHAR* UTheGoldenAgeMonsterSync::ChestMonsterClassPath = TEXT("/Game/_Main/Blueprint/BP_ChestMonster.BP_ChestMonster_C");
-const TCHAR* UTheGoldenAgeMonsterSync::GhostFishClassPath = TEXT("/Game/_Main/Blueprint/BP_GhostFish.BP_GhostFish_C");
 
 namespace
 {
@@ -112,16 +110,22 @@ ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::EnsureMonster(const FMonsterType
 		return nullptr;
 	}
 
-	const TCHAR* ClassPath = nullptr;
+	const ATheGoldenAgeGameMode* GameMode = World->GetAuthGameMode<ATheGoldenAgeGameMode>();
+	if (!GameMode)
+	{
+		return nullptr;
+	}
+
 	const TCHAR* Label = nullptr;
+	TSubclassOf<ATheGoldenAgeMonster> MonsterClass;
 	if (Row.Kind == ChestMonsterKind)
 	{
-		ClassPath = ChestMonsterClassPath;
+		MonsterClass = GameMode->ChestMonsterClass;
 		Label = TEXT("ChestMonster");
 	}
 	else if (Row.Kind == GhostFishKind)
 	{
-		ClassPath = GhostFishClassPath;
+		MonsterClass = GameMode->GhostFishClass;
 		Label = TEXT("GhostFish");
 	}
 	else
@@ -130,10 +134,9 @@ ATheGoldenAgeMonster* UTheGoldenAgeMonsterSync::EnsureMonster(const FMonsterType
 		return nullptr;
 	}
 
-	UClass* MonsterClass = LoadClass<ATheGoldenAgeMonster>(nullptr, ClassPath);
 	if (!MonsterClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load monster class: %s"), ClassPath);
+		UE_LOG(LogTemp, Error, TEXT("Game mode has no monster class for kind %u"), Row.Kind);
 		return nullptr;
 	}
 

@@ -31,8 +31,6 @@ public:
 
 	static const TCHAR* ServerUri;
 	static const TCHAR* DatabaseIdentity;
-	static const TCHAR* HeroPawnClassPath;
-	static const TCHAR* ExplorerPawnClassPath;
 	static constexpr float SyncIntervalSeconds = 0.01f;
 
 	static bool IsValidUsername(const FString& Username, FString& OutError);
@@ -54,7 +52,7 @@ private:
 	void SyncAllPlayersFromCache();
 	void InitSpawnAnchorFromLevel();
 	APawn* EnsurePlayerPawn(const FPlayerType& Row);
-	const TCHAR* GetPawnClassPathForRole(uint8 Role) const;
+	UClass* GetPawnClassForRole(uint8 Role) const;
 	void SubmitLogin(const FString& Username, const FString& Password, uint8 Role);
 	void PossessLocalPlayerPawn();
 	void ReleaseLocalPossession();

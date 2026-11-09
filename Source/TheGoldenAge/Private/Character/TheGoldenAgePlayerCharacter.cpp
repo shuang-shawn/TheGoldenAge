@@ -211,23 +211,6 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 		Tags.AddUnique(HeroActorTag);
 	}
 
-	if (!MoveAction)
-	{
-		MoveAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
-	}
-	if (!LookAction)
-	{
-		LookAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Look.IA_Look"));
-	}
-	if (!CameraRotateAction)
-	{
-		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
-	}
-	if (!AttackAction)
-	{
-		AttackAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Attack.IA_Attack"));
-	}
-
 	if (Health)
 	{
 		Health->OnDied.AddDynamic(this, &ATheGoldenAgePlayerCharacter::HandleDied);
@@ -277,24 +260,6 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-	// Input is set up on possess, which can happen before BeginPlay, so resolve the asset here too.
-	if (!MoveAction)
-	{
-		MoveAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
-	}
-	if (!LookAction)
-	{
-		LookAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Look.IA_Look"));
-	}
-	if (!CameraRotateAction)
-	{
-		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
-	}
-	if (!AttackAction)
-	{
-		AttackAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Attack.IA_Attack"));
-	}
 
 	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{

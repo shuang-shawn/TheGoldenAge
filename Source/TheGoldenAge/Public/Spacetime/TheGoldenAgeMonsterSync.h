@@ -21,9 +21,6 @@ class THEGOLDENAGE_API UTheGoldenAgeMonsterSync : public UWorldSubsystem
 	GENERATED_BODY()
 
 public:
-	static const TCHAR* ChestMonsterClassPath;
-	static const TCHAR* GhostFishClassPath;
-
 	virtual void Deinitialize() override;
 
 	void SetConnection(UDbConnection* InConn);

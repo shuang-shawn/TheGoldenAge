@@ -19,7 +19,7 @@
 			]
 		},
 		{
-			"Name": "MCPClientToolset",
+			"Name": "SpacetimeDbSdk",
 			"Enabled": true
 		},
 		{
@@ -27,7 +27,7 @@
 			"Enabled": true
 		},
 		{
-			"Name": "Terminal",
+			"Name": "MCPClientToolset",
 			"Enabled": true
 		},
 		{
@@ -35,7 +35,7 @@
 			"Enabled": true
 		},
 		{
-			"Name": "SpacetimeDbSdk",
+			"Name": "Terminal",
 			"Enabled": true
 		}
 	]

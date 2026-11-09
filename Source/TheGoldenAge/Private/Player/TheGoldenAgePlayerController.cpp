@@ -24,14 +24,6 @@ ATheGoldenAgePlayerController::ATheGoldenAgePlayerController()
 void ATheGoldenAgePlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (!DefaultMappingContext)
-	{
-		DefaultMappingContext = LoadObject<UInputMappingContext>(
-			nullptr,
-			TEXT("/Game/_Main/Input/IMC_Default.IMC_Default"));
-	}
-
 	AddDefaultMappingContext();
 }
 

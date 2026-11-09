@@ -1,6 +1,7 @@
 #include "Spacetime/TheGoldenAgePlayerSync.h"
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
+#include "Game/TheGoldenAgeGameMode.h"
 #include "Spacetime/TheGoldenAgeMonsterSync.h"
 #include "Connection/Credentials.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -18,8 +19,6 @@
 
 const TCHAR* UTheGoldenAgePlayerSync::ServerUri = TEXT("https://maincloud.spacetimedb.com");
 const TCHAR* UTheGoldenAgePlayerSync::DatabaseIdentity = TEXT("c2009abca22226b9b908c5d99782eb9da9ffa21e9de7158c7f17a6c84c3d5b13");
-const TCHAR* UTheGoldenAgePlayerSync::HeroPawnClassPath = TEXT("/Game/_Main/Blueprint/BP_Hero.BP_Hero_C");
-const TCHAR* UTheGoldenAgePlayerSync::ExplorerPawnClassPath = TEXT("/Game/_Main/Blueprint/BP_Explorer.BP_Explorer_C");
 
 namespace
 {
@@ -1033,11 +1032,19 @@ void UTheGoldenAgePlayerSync::ConfigurePawnPresence(APawn* Pawn, bool bLocallyCo
 	}
 }
 
-const TCHAR* UTheGoldenAgePlayerSync::GetPawnClassPathForRole(uint8 Role) const
+UClass* UTheGoldenAgePlayerSync::GetPawnClassForRole(uint8 Role) const
 {
-	return Role == static_cast<uint8>(ETheGoldenAgePlayerRole::Explorer)
-		? ExplorerPawnClassPath
-		: HeroPawnClassPath;
+	const UWorld* World = GetWorld();
+	const ATheGoldenAgeGameMode* GameMode = World ? World->GetAuthGameMode<ATheGoldenAgeGameMode>() : nullptr;
+	if (!GameMode)
+	{
+		return nullptr;
+	}
+
+	const TSubclassOf<APawn>& PawnClass = Role == static_cast<uint8>(ETheGoldenAgePlayerRole::Explorer)
+		? GameMode->ExplorerPawnClass
+		: GameMode->HeroPawnClass;
+	return PawnClass.Get();
 }
 
 APawn* UTheGoldenAgePlayerSync::EnsurePlayerPawn(const FPlayerType& Row)
@@ -1053,11 +1060,10 @@ APawn* UTheGoldenAgePlayerSync::EnsurePlayerPawn(const FPlayerType& Row)
 		return nullptr;
 	}
 
-	const TCHAR* PawnClassPath = GetPawnClassPathForRole(Row.Role);
-	UClass* PlayerClass = LoadClass<APawn>(nullptr, PawnClassPath);
+	UClass* PlayerClass = GetPawnClassForRole(Row.Role);
 	if (!PlayerClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load player pawn class: %s"), PawnClassPath);
+		UE_LOG(LogTemp, Error, TEXT("Game mode has no pawn class for role %u"), Row.Role);
 		return nullptr;
 	}
 
