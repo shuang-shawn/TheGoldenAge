@@ -1,8 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "TheGoldenAgeGameMode.h"
+#include "Game/TheGoldenAgeGameMode.h"
 
-#include "TheGoldenAgePlayerController.h"
+#include "Player/TheGoldenAgePlayerController.h"
 
 #include "GameFramework/Controller.h"
 #include "GameFramework/DefaultPawn.h"

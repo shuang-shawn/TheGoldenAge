@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "TheGoldenAgePlayerController.h"
+#include "Player/TheGoldenAgePlayerController.h"
 
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
