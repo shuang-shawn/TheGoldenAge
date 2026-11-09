@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-08 (gameplay design standards documented; repo still empty-template for gameplay code)  
+**Last verified against codebase:** 2026-11-08 (player movement, battle locomotion anims, Enhanced Input; editor PIE smoke-tested)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -32,6 +32,7 @@ This file is the **authoritative shared reference** for project state. It is not
 4. Do not introduce new dependencies, plugins, or architectural patterns without a valid reason (record the decision if you do).
 5. If a change affects another system, verify integration (compile, smoke test in editor when possible).
 6. Do not overwrite or remove another developer's work without understanding its purpose.
+7. **Do not configure the game from runtime startup code** (e.g. `BeginPlay`, `PostInitializeComponents`, constructors that patch content) when the same result can be achieved by editing assets. Example: attaching the weapon and shield to the left/right hand sockets must be set up in the Blueprint/asset, not via code on startup. Use MCP to edit the asset/Blueprint/level directly; **if MCP cannot do it, tell the user the exact manual steps to perform in the editor** instead of falling back to startup code. Runtime code should implement gameplay behaviour, not assemble or repair content configuration.
 
 ### After making changes
 
@@ -62,12 +63,12 @@ This file is the **authoritative shared reference** for project state. It is not
 | Item | Status |
 |------|--------|
 | **Project name** | TheGoldenAge |
-| **Game concept & genre** | **[Design]** **3D top-down action RPG** — camera and moment-to-moment feel inspired by *Hades*; skill targeting and casting inspired by MOBAs (e.g. *League of Legends*). Full requirements: [Gameplay design requirements](#gameplay-design-requirements). **Not implemented in code yet.** |
-| **Core gameplay experience** | **[Design]** Top-down follow camera, WASD movement with movement-based facing, mouse-based combat/ability targeting (not continuous cursor-facing). **[Impl]** Default map `Lvl_Main` is an empty template-style level (lighting, floor, `PlayerStart`); no custom Pawn or controls. |
+| **Game concept & genre** | **[Design]** **3D top-down action RPG** (*Hades*-style camera; MOBA-inspired targeting **planned**). See [Gameplay design requirements](#gameplay-design-requirements). **Locomotion implemented.** |
+| **Core gameplay experience** | **[Design]** Mouse combat targeting, abilities — **planned**. **[Impl]** Top-down follow camera, camera-relative WASD movement, movement-facing on `BP_TinyHeroPolyart`; battle in-place locomotion on `Lvl_Main` via `ATheGoldenAgeGameMode`. |
 | **Target platforms** | **Desktop** per `Config/DefaultEngine.ini` (`HardwareTargetingSettings`). Renderer configs also reference mobile/Linux/Mac shader paths (template defaults). **Shipping targets not formally defined.** |
 | **Unreal Engine version** | **5.8** (`EngineAssociation` in `TheGoldenAge.uproject`). Editor log indicates **5.8.3** install at `K:/UE_5.8` (environment-specific; not required for all developers). |
-| **Development stage** | **Early prototype / post-template setup** — gameplay design direction documented here; C++ module has no game classes; `Content/RPGHeroSquad/` provides third-party hero assets locally; no gameplay systems in `Source/`. |
-| **Primary languages** | C++ (game module shell), C# (UnrealBuildTool targets/rules), Blueprints (**none in repo on disk**), ini configuration. |
+| **Development stage** | **Early prototype** — basic player movement and battle locomotion animations implemented; combat/targeting not started. |
+| **Primary languages** | C++ (gameplay base classes), Blueprints (`BP_TinyHeroPolyart`, input assets), C# (UBT), ini configuration. |
 
 ### Main technologies and dependencies
 
@@ -75,7 +76,7 @@ This file is the **authoritative shared reference** for project state. It is not
 |------------|------|----------|
 | Unreal Engine 5.8 | Runtime & editor | Yes |
 | **TheGoldenAge** game module | Primary runtime module | Yes |
-| **Enhanced Input** | Default input component classes in config; module dependency in `TheGoldenAge.Build.cs` | Yes — **no Input Actions / Mapping Context assets in repo** |
+| **Enhanced Input** | `IA_Move` (Axis2D), `IMC_Default`; bindings in C++ | Yes — assets under `Content/_Main/Input/` |
 | Lumen, Nanite, ray tracing, virtual shadow maps | Project renderer defaults | Yes (`DefaultEngine.ini`) |
 | **Model Context Protocol (engine plugins)** | Editor tooling: `MCPClientToolset`, `ModelContextProtocol`, `EditorToolset`, `Terminal` | Yes (`TheGoldenAge.uproject`) |
 | **ModelingToolsEditorMode** | Editor-only modeling | Yes |
@@ -101,7 +102,7 @@ This file is the **authoritative shared reference** for project state. It is not
 | Smooth camera follow (no abrupt snapping) | **[Design]** |
 | Consistent top-down angle and distance unless intentionally changed | **[Design]** |
 
-**[Impl]** No custom camera actor, spring arm, or follow logic in `Source/`. PIE uses engine defaults on `Lvl_Main`.
+**[Impl]** `ATheGoldenAgePlayerCharacter`: `USpringArmComponent` + `UCameraComponent`; world-fixed tilt (~−55° pitch, ~45° yaw), position lag; view target set on possess. **Tune** arm length/angles in C++ defaults or BP.
 
 ### Player character controls
 
@@ -111,7 +112,7 @@ This file is the **authoritative shared reference** for project state. It is not
 - Diagonal input must be **normalized** so diagonal speed matches cardinal speed.
 - Movement must feel responsive for real-time action combat.
 
-**[Impl]** Not implemented (no Pawn / movement component setup in project code).
+**[Impl]** `ATheGoldenAgePlayerCharacter::Move` — Enhanced Input `IA_Move`, camera-yaw-relative `AddMovementInput`, implicit diagonal normalization. Max walk speed 300 (C++ default). Movement is normal walking (no plane constraint); a Z-up plane constraint left the capsule stuck against `Floor_0` while walk anims still played.
 
 #### Character facing and rotation [Design]
 
@@ -161,7 +162,7 @@ Architecture should support (without implementing all systems upfront):
 
 Movement input must **not** auto-rotate toward the mouse. Modules (cursor targeting, rotation, movement, skill execution) must evolve independently.
 
-**[Impl]** `DefaultPlayerInputClass` / `DefaultInputComponentClass` → Enhanced Input; `EnhancedInput` module in `TheGoldenAge.Build.cs`. **No** `InputAction` / `InputMappingContext` assets in tracked content; no bindings in C++.
+**[Impl]** Assets: `Content/_Main/Input/IA_Move`, `IMC_Default`. WASD mappings (with axis modifiers) are authored on `IMC_Default`. `ATheGoldenAgePlayerController` only adds that context at runtime. `ATheGoldenAgePlayerCharacter` binds `IA_Move`. **No** mouse targeting actions yet.
 
 **Recommended content paths (when implementing):** e.g. `Content/_Main/Input/` with naming `IA_*`, `IMC_*` — adopt consistently when first assets are created.
 
@@ -198,10 +199,10 @@ Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable
 
 | System | Intended responsibility | Implementation status |
 |--------|-------------------------|------------------------|
-| **Player Controller** | Enhanced Input setup; cursor → ground target; expose targeting | **Planned** |
-| **Player Character** | Movement, movement-facing, combat rotation requests | **Planned** |
-| **Camera system** | Top-down follow, smooth tracking | **Planned** |
-| **Input system** | `IA_*` / `IMC_*` assets, mappings | **Partial** — engine Enhanced Input defaults only |
+| **Player Controller** | Enhanced Input; mapping context; future cursor → ground target | **Partial** — input only |
+| **Player Character** | Movement, movement-facing; `RequestFaceDirection` hook for future combat | **Partial** — locomotion only |
+| **Camera system** | Top-down follow, smooth tracking | **Impl** — spring arm on character |
+| **Input system** | `IA_*` / `IMC_*` assets, mappings | **Impl** — move only |
 | **Combat / abilities** | Targeting consumption, per-skill rules | **Planned** |
 | **Gameplay components** | Reusable behaviour where appropriate | **Planned** |
 
@@ -211,28 +212,32 @@ Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable
 
 ### High-level architecture (current)
 
-The project has **no custom gameplay architecture yet** in code. **[Design]** target architecture is documented in [Gameplay design requirements](#gameplay-design-requirements) (Player Controller, Character, camera, Enhanced Input, modular combat targeting). Structure today matches a **blank C++ game template** renamed from `TP_Blank`:
+The project has a **minimal top-down player stack** in C++ with `BP_TinyHeroPolyart` as the visual/animation Blueprint child. **[Design]** full architecture in [Gameplay design requirements](#gameplay-design-requirements). High-level runtime flow:
 
 ```
 TheGoldenAge.uproject
-    └── Runtime module: TheGoldenAge (FDefaultGameModuleImpl only)
-            └── No AActor / APawn / AGameMode / UGameInstance subclasses in Source/
+    └── Module: TheGoldenAge
+            ├── ATheGoldenAgeGameMode → Default pawn: BP_TinyHeroPolyart
+            ├── ATheGoldenAgePlayerController → IMC_Default + IA_Move
+            └── ATheGoldenAgePlayerCharacter (BP parent) → movement, camera, battle anims
 Content/_Main/
-    └── Lvl_Main (game & editor default map)
+    ├── Lvl_Main
+    └── Input/ (IA_Move, IMC_Default)
 Content/RPGHeroSquad/
-    └── Fab/third-party hero squad assets (animations, etc.) — **untracked locally until committed via LFS**
+    ├── CharacterBP/BP_TinyHeroPolyart (playable; reparented from SkeletalMeshActor)
+    └── Animation/TinyHero/… (battle in-place locomotion)
 Config/
-    └── Engine, game, input defaults
+    └── GlobalDefaultGameMode → TheGoldenAgeGameMode
 ```
 
 ### Major gameplay systems
 
 | System | Responsibility | Status |
 |--------|----------------|--------|
-| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Not implemented** (engine defaults only). **[Design]** Custom GameMode + top-down Character/Pawn. |
-| Camera | Top-down follow camera | **Planned** — see [Perspective and camera](#perspective-and-camera). |
-| Player movement & facing | WASD, movement-facing, combat rotation | **Planned** — see [Player character controls](#player-character-controls). |
-| Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — default Enhanced Input classes only; **no** `IA_*` / `IMC_*` assets. |
+| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Partial** — `ATheGoldenAgeGameMode`, `BP_TinyHeroPolyart`, `ATheGoldenAgePlayerController`. |
+| Camera | Top-down follow camera | **Implemented** — spring arm + lag on `ATheGoldenAgePlayerCharacter`. |
+| Player movement & facing | WASD, movement-facing, combat rotation | **Partial** — movement + facing; `RequestFaceDirection` stub for future combat. |
+| Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
 | AI / NPCs | — | **Not implemented** |
@@ -243,17 +248,20 @@ Config/
 
 ### C++ classes and Blueprints
 
-**C++ (verified in `Source/`):**
+**C++ (`Source/TheGoldenAge/`):**
 
-- Module: `TheGoldenAge` — header is empty aside from includes; cpp uses `IMPLEMENT_PRIMARY_GAME_MODULE(FDefaultGameModuleImpl, ...)`.
-- Build: `TheGoldenAge.Build.cs`, `TheGoldenAge.Target.cs`, `TheGoldenAgeEditor.Target.cs`.
+| Class | Role |
+|-------|------|
+| `ATheGoldenAgeGameMode` | Default pawn class `BP_TinyHeroPolyart`; `GetDefaultPawnClassForController` loads BP if needed |
+| `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
+| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion |
 
-**No `UCLASS` / `AActor` hierarchy exists yet.**
+**Blueprints / content:**
 
-**Blueprints:**
-
-- **Tracked in Git (HEAD):** maps only (`Content/_Main/*.umap`). `Lvl_Main` is a template-lit greybox (lighting, `PlayerStart`, floor).
-- **Local / untracked (2026-11-08):** `Content/RPGHeroSquad/` — ~126 `.uasset` files (~64 MiB on disk). **Not yet in remote** until committed with LFS.
+- **`BP_TinyHeroPolyart`** — parent `ATheGoldenAgePlayerCharacter`; mesh `SK_TinyHeroPolyart`; sword/shield attached to `CharacterMesh0`; `AutoPossessPlayer` = Player0.
+- **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IMC_Default`.
+- **`Lvl_Main`** — greybox play map.
+- **`Content/RPGHeroSquad/`** — hero assets (commit via LFS when ready).
 - **Must use LFS** when adding: all `.uasset` / `.umap` per `.gitattributes`.
 
 ### Communication between components
@@ -309,8 +317,10 @@ Source/
   TheGoldenAgeEditor.Target.cs
   TheGoldenAge/
     TheGoldenAge.Build.cs
-    TheGoldenAge.h
-    TheGoldenAge.cpp
+    TheGoldenAge.h / TheGoldenAge.cpp
+    TheGoldenAgeGameMode.h / .cpp
+    TheGoldenAgePlayerController.h / .cpp
+    TheGoldenAgePlayerCharacter.h / .cpp
 ```
 
 ### Files to read before significant changes
@@ -337,7 +347,7 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 ### Game module (`TheGoldenAge`)
 
-**Implementation:** Standard primary game module with no custom startup logic.
+**Implementation:** Primary game module plus gameplay classes listed above.
 
 - **Build settings:** `BuildSettingsVersion.V7`, `IncludeOrderVersion.Unreal5_8` (in target `.cs` files).
 - **Public dependencies:** `Core`, `CoreUObject`, `Engine`, `InputCore`, `EnhancedInput`.
@@ -350,6 +360,7 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 |---------|--------|
 | `GameDefaultMap` | `/Game/_Main/Lvl_Main` |
 | `EditorStartupMap` | `/Game/_Main/Lvl_Main` |
+| `GlobalDefaultGameMode` | `/Script/TheGoldenAge.TheGoldenAgeGameMode` |
 
 **Lvl_Main (verified at high level):** Template lighting stack, `PlayerStart`, floor mesh, sky — suitable as a greybox empty stage.
 
@@ -357,18 +368,36 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 - `DefaultPlayerInputClass` → `EnhancedPlayerInput`
 - `DefaultInputComponentClass` → `EnhancedInputComponent`
-- **No** `ActionMappings` / `AxisMappings` (legacy) or references to `InputAction` / `InputMappingContext` assets in config.
+| Asset / setting | Path / behaviour |
+|-----------------|------------------|
+| `IA_Move` | `/Game/_Main/Input/IA_Move` — `Axis2D` |
+| `IMC_Default` | `/Game/_Main/Input/IMC_Default` — WASD authored on the asset (`IA_Move`: W swizzle YXZ, S swizzle YXZ then negate, A negate, D none) |
+| Bind | `IA_Move` → `ATheGoldenAgePlayerCharacter::Move` |
+| Context | Added in `ATheGoldenAgePlayerController` on possess |
 
-**Design requirements (see [Input architecture (design)](#input-architecture-design)):**
+**Planned:** mouse ground targeting on Player Controller; combat actions — not implemented.
 
-- All player controls via **Enhanced Input** (`UInputAction`, `UInputMappingContext`); no gameplay key polling.
-- **Player Controller:** cursor screen → ground-plane world position; expose targeting to combat/abilities.
-- **Character:** movement + movement-facing; rotate toward target only when combat/ability requests it.
-- Initial mapping: WASD → movement; mouse → targeting position; future mouse buttons → attacks/skills.
+### Player character and battle locomotion animations
 
-**Implementation status:** Config and module dependency only — **no** Input Action / Mapping Context assets in VCS; no C++ input bindings.
+**Playable pawn:** `Content/RPGHeroSquad/CharacterBP/BP_TinyHeroPolyart` (child of `ATheGoldenAgePlayerCharacter`).
 
-**Expected pattern when implementing:** Create Enhanced Input assets under a consistent content folder (e.g. `Content/_Main/Input/` with `IA_*`, `IMC_*`), bind in custom `APlayerController` / `ACharacter` C++ base with Blueprint children for tuning.
+**Locomotion logic (C++):** `AnimationSingleNode` on skeletal mesh; switches sequences from velocity (no root-motion drive). Idle when speed is below `MinMovingSpeed` (default 10).
+
+| Local velocity (character space) | Animation asset |
+|----------------------------------|-----------------|
+| Dominant +Y | `Anim_MoveFWD_Battle_InPlace_TinyHero` |
+| Dominant −Y | `Anim_MoveBWD_Battle_InPlace_TinyHero` |
+| Dominant −X | `Anim_MoveLFT_Battle_InPlace_TinyHero` |
+| Dominant +X | `Anim_MoveRGT_Battle_InPlace_TinyHero` |
+| Not moving | `Anim_Idle_Battle_TinyHero` |
+
+Diagonals: **dominant axis** picks one of the four move clips. Play rate scaled by speed vs `AnimPlayRateReferenceSpeed` (default 300).
+
+**Equipment (sword/shield):** attached to skeleton sockets (`Weapon_R` sword, `Weapon_L` shield) manually in `BP_TinyHeroPolyart` (editor). No C++ attachment code (the earlier `AttachEquipmentToSockets` startup code was removed, per the no-startup-configuration rule).
+
+**Input mapping:** WASD rows live on `IMC_Default` (saved asset). `IA_Move` is Axis2D (X = right, Y = forward): W swizzle `YXZ`, S swizzle `YXZ` then negate, A negate, D no modifier. The controller does not rewrite mappings at runtime. `IA_Move` is also resolved in `SetupPlayerInputComponent`, since possess can run before `BeginPlay`.
+
+**Facing:** interpolates yaw toward velocity while moving; idle keeps last rotation; **no** mouse-driven facing.
 
 ### Rendering (project defaults)
 
@@ -425,6 +454,7 @@ Documented in [Gameplay design requirements](#gameplay-design-requirements); app
 | **Input** | Enhanced Input only; modular targeting (Controller) vs rotation/movement (Character) vs abilities (combat system) |
 | **Code quality** | Epic naming/macros; focused classes; minimal unnecessary Blueprint exposure; consider multiplayer |
 | **Content folders** | Group by system; prefer `Content/_Main/Input/` (`IA_*`, `IMC_*`) when input assets are added |
+| **Configuration vs runtime code** | Configure content (socket attachments, mappings, defaults) in assets via MCP or manual editor steps — **not** in startup code. If MCP can't do it, instruct the user to configure it manually. See [While making changes](#while-making-changes) #7. |
 
 ### Not yet established
 
@@ -466,6 +496,7 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 - [x] High-end rendering defaults configured (Lumen/Nanite/RT)
 - [x] MCP-related engine plugins enabled for editor tooling
 - [x] Initial git commit (`3fc9962`)
+- [x] **Player movement** — `BP_TinyHeroPolyart`, camera-relative WASD, top-down camera, battle in-place locomotion (2026-11-08)
 
 ### In progress
 
@@ -473,27 +504,26 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 
 ### Planned gameplay (design documented, not coded)
 
-See [Gameplay design requirements](#gameplay-design-requirements). High-level order (flexible):
+See [Gameplay design requirements](#gameplay-design-requirements). Next steps (flexible):
 
-- [ ] Custom `AGameModeBase` / default pawn assignment for top-down play on `Lvl_Main`
-- [ ] `APlayerController` (C++) — Enhanced Input context, cursor → ground targeting API
-- [ ] `ACharacter` (C++) — WASD 8-dir normalized movement, movement-facing, combat rotation hook
-- [ ] Top-down follow camera (component or dedicated camera manager)
-- [ ] Enhanced Input assets: `IA_Move`, `IMC_Default` (names illustrative), under `Content/_Main/Input/`
-- [ ] Combat/ability targeting interface (stub only until first ability) — no full combat system required yet
+- [ ] Player Controller — cursor → ground-plane targeting API
+- [ ] Combat rotation via `RequestFaceDirection` / ability system
+- [ ] Attack/skill `InputAction`s and mouse bindings
+- [ ] Animation Blueprint (optional) if single-node limits grow
 
 ### Partially implemented
 
 | Item | Done | Outstanding |
 |------|------|-------------|
-| Enhanced Input stack | Default `EnhancedPlayerInput` / `EnhancedInputComponent`; module dependency | Project `IA_*` / `IMC_*` assets and bindings |
-| Third-party hero content | Local `Content/RPGHeroSquad/` (meshes, anims, sample Character BPs) | Not committed to remote; not wired to project control scheme |
+| GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
+| Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
+| Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
 
 ### Known issues / technical debt
 
 | Item | Severity | Notes |
 |------|----------|--------|
-| No gameplay framework classes | Expected for stage | Blocks all game features |
+| Basic locomotion only | Expected for stage | Combat, AI, UI still blocked |
 | No content beyond two maps | Medium | No blueprints, meshes, or input assets in VCS |
 | CommonUI settings without plugin enable | Low | May confuse; verify before UI work |
 | Aggressive RT/Lumen defaults | Low | May hurt perf on low-end hardware during prototyping |
@@ -511,7 +541,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). High-level or
 
 | Decision | Notes |
 |----------|--------|
-| Game genre, camera, core loop | **Decided at design level** — 3D top-down action RPG; see [Gameplay design requirements](#gameplay-design-requirements). **Not implemented.** |
+| Game genre, camera, core loop | **Decided** — 3D top-down action RPG. **Locomotion implemented**; combat loop not started. |
 | C++ vs Blueprint split | **Decided** — C++ foundation, Blueprint customization (see [C++ and Blueprint development philosophy](#c-and-blueprint-development-philosophy)) |
 | Multiplayer scope | **Undecided** (no net config); new gameplay code should avoid unnecessary single-player assumptions |
 | Whether to adopt CommonUI | **Undecided** |
@@ -541,6 +571,24 @@ See [Gameplay design requirements](#gameplay-design-requirements). High-level or
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-08 — Character stuck on floor while walk anim played
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Removed the Z-up plane constraint on `ATheGoldenAgePlayerCharacter`. The capsule sat ~0.5 cm into `Floor_0` and could not be lifted, so movement sweeps failed while velocity still drove the walk animation. |
+| **Files / systems** | `TheGoldenAgePlayerCharacter.cpp`; `BP_TinyHeroPolyart` CharacterMovement `bConstrainToPlane` cleared and saved. |
+| **Reason** | Editor log: `is stuck and failed to move` against `Floor_0`, normal +Z, location Z=95.50. |
+| **Follow-up** | PIE again after Live Coding. |
+
+### 2026-11-08 — Player movement and battle locomotion (`BP_TinyHeroPolyart`)
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added `ATheGoldenAgeGameMode`, `ATheGoldenAgePlayerController`, `ATheGoldenAgePlayerCharacter`; reparented `BP_TinyHeroPolyart`; Enhanced Input assets; four battle in-place move clips + idle via `AnimationSingleNode`. |
+| **Files / systems** | `Source/TheGoldenAge/*Player*`, `Config/DefaultEngine.ini`, `Content/_Main/Input/`, `Content/RPGHeroSquad/CharacterBP/BP_TinyHeroPolyart` |
+| **Reason** | First playable top-down movement using existing Tiny Hero assets. |
+| **Follow-up** | Commit new/changed assets with LFS; verify feel in PIE; add mouse targeting when implementing combat. |
 
 ### 2026-11-08 — Document gameplay design and development standards
 
@@ -698,7 +746,8 @@ git commit -m "Stop tracking Rider .idea metadata"
 | Player controls (design)? | WASD movement; mouse ground targeting for combat; no idle cursor-facing |
 | Input system? | **Enhanced Input** (project assets **not** created yet) |
 | C++ vs Blueprint? | C++ core; Blueprint children for tuning |
-| Any custom C++ gameplay classes? | **No** |
+| Default pawn? | `BP_TinyHeroPolyart` via `ATheGoldenAgeGameMode` |
+| Any custom C++ gameplay classes? | **Yes** — GameMode, PlayerController, PlayerCharacter |
 | Multiplayer? | **Not configured** |
 | Where to log agent work? | [Development Change Log](#h-development-change-log) |
 | Git LFS / assets? | [Git, Git LFS, and Asset Management Guidelines](#git-git-lfs-and-asset-management-guidelines) |
