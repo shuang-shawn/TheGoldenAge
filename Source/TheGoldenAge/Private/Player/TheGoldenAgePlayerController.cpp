@@ -2,6 +2,7 @@
 
 #include "Player/TheGoldenAgePlayerController.h"
 
+#include "Character/TheGoldenAgePlayerCharacter.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
 #include "UObject/ConstructorHelpers.h"
@@ -39,6 +40,14 @@ void ATheGoldenAgePlayerController::OnPossess(APawn* InPawn)
 
 	SetViewTarget(InPawn);
 	AddDefaultMappingContext();
+}
+
+void ATheGoldenAgePlayerController::DamageLocalPlayer(float Amount)
+{
+	if (ATheGoldenAgePlayerCharacter* PlayerCharacter = Cast<ATheGoldenAgePlayerCharacter>(GetPawn()))
+	{
+		PlayerCharacter->ApplyDamage(Amount);
+	}
 }
 
 void ATheGoldenAgePlayerController::AddDefaultMappingContext()

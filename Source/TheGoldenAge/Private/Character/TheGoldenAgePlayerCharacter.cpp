@@ -2,10 +2,14 @@
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
 
+#include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgeMonster.h"
+#include "Spacetime/TheGoldenAgePlayerSync.h"
+#include "UI/TheGoldenAgeHealthBarWidget.h"
 
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/WidgetComponent.h"
 #include "Animation/AnimClassInterface.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimNode_SequencePlayer.h"
@@ -46,7 +50,10 @@ void ApplyLocomotionPlayRates(UAnimInstance* AnimInstance, float MovePlayRate)
 		}
 
 		// Idle clips stay at 1. Move clips, including the Explorer sprint used for every direction, scale with speed.
-		const float PlayRate = Sequence->GetName().Contains(TEXT("Idle")) ? 1.f : MovePlayRate;
+		const FString SequenceName = Sequence->GetName();
+		const float PlayRate = SequenceName.Contains(TEXT("Idle")) || SequenceName.Contains(TEXT("Die"))
+			? 1.f
+			: MovePlayRate;
 		Player->SetPlayRate(PlayRate);
 	}
 }
@@ -95,6 +102,19 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+
+	Health = CreateDefaultSubobject<UTheGoldenAgeHealthComponent>(TEXT("Health"));
+
+	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
+	HealthBar->SetupAttachment(RootComponent);
+	HealthBar->SetWidgetSpace(EWidgetSpace::Screen);
+	HealthBar->SetWidgetClass(UTheGoldenAgeHealthBarWidget::StaticClass());
+	HealthBar->SetDrawSize(FVector2D(160.f, 14.f));
+	HealthBar->SetPivot(FVector2D(0.5f, 0.f));
+	HealthBar->SetRelativeLocation(FVector(0.f, 0.f, -110.f));
+	HealthBar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HealthBar->SetGenerateOverlapEvents(false);
+	HealthBar->SetCanEverAffectNavigation(false);
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> MoveActionAsset(
 		TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
@@ -146,6 +166,12 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
 	}
 
+	if (Health)
+	{
+		Health->OnDied.AddDynamic(this, &ATheGoldenAgePlayerCharacter::HandleDied);
+	}
+	BindHealthBar();
+
 	if (IsLocallyControlled())
 	{
 		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
@@ -166,13 +192,17 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	const bool bDead = IsDead();
 	if (IsLocallyControlled())
 	{
 		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
 		UpdateTopDownCameraOrientation(DeltaSeconds);
-		UpdateMovementFacing(DeltaSeconds);
+		if (!bDead)
+		{
+			UpdateMovementFacing(DeltaSeconds);
+		}
 	}
-	else
+	else if (!bDead)
 	{
 		// Other players are moved by transform snaps, so CharacterMovement velocity stays zero.
 		UpdateRemotePresentationVelocity(DeltaSeconds);
@@ -221,6 +251,11 @@ void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pl
 
 void ATheGoldenAgePlayerCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsDead())
+	{
+		return;
+	}
+
 	const FVector2D MovementVector = Value.Get<FVector2D>();
 	if (!Controller)
 	{
@@ -440,6 +475,88 @@ void ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation()
 	{
 		PlayRateProperty->SetPropertyValue_InContainer(AnimInstance, static_cast<double>(PlayRate));
 	}
+	if (FBoolProperty* DeadProperty = FindFProperty<FBoolProperty>(AnimClass, TEXT("bIsDead")))
+	{
+		DeadProperty->SetPropertyValue_InContainer(AnimInstance, IsDead());
+	}
 
 	ApplyLocomotionPlayRates(AnimInstance, PlayRate);
+}
+
+void ATheGoldenAgePlayerCharacter::ApplyDamage(float Amount)
+{
+	if (!IsLocallyControlled() || !FMath::IsFinite(Amount) || Amount <= 0.f)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UTheGoldenAgePlayerSync* Sync = World->GetSubsystem<UTheGoldenAgePlayerSync>())
+		{
+			Sync->RequestLocalDamage(Amount);
+		}
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::ApplyServerHealth(float NewHealth)
+{
+	if (Health)
+	{
+		Health->ApplyServerHealth(NewHealth);
+	}
+}
+
+bool ATheGoldenAgePlayerCharacter::IsDead() const
+{
+	return Health && Health->IsDead();
+}
+
+void ATheGoldenAgePlayerCharacter::BindHealthBar()
+{
+	if (!HealthBar || !Health)
+	{
+		return;
+	}
+
+	if (!HealthBar->GetWidget())
+	{
+		HealthBar->InitWidget();
+	}
+
+	if (UTheGoldenAgeHealthBarWidget* Bar = Cast<UTheGoldenAgeHealthBarWidget>(HealthBar->GetWidget()))
+	{
+		Bar->SetHealthComponent(Health);
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::HandleDied()
+{
+	LastMovementInputDirection = FVector::ZeroVector;
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->DisableMovement();
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::HandleRespawned()
+{
+	LastMovementInputDirection = FVector::ZeroVector;
+	RemotePresentationVelocity = FVector::ZeroVector;
+	RemotePresentationLocation = GetActorLocation();
+	bHasRemotePresentationSample = true;
+	RemotePresentationSampleAge = 0.f;
+	RemoteStillTime = 0.f;
+
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->SetMovementMode(MOVE_Walking);
+	}
 }

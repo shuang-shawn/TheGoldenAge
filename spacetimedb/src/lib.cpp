@@ -112,10 +112,23 @@ SPACETIMEDB_TABLE(MonsterTickTimer, monster_tick_timer, Private)
 FIELD_PrimaryKeyAutoInc(monster_tick_timer, scheduled_id)
 SPACETIMEDB_SCHEDULE(monster_tick_timer, 1, monster_tick)
 
+// Private. One shot, one second after health reaches 0. The reducer deletes the row when it runs.
+struct PlayerRespawnTimer
+{
+    uint64_t scheduled_id;
+    ScheduleAt scheduled_at;
+    std::string name;
+};
+SPACETIMEDB_STRUCT(PlayerRespawnTimer, scheduled_id, scheduled_at, name)
+SPACETIMEDB_TABLE(PlayerRespawnTimer, player_respawn_timer, Private)
+FIELD_PrimaryKeyAutoInc(player_respawn_timer, scheduled_id)
+SPACETIMEDB_SCHEDULE(player_respawn_timer, 1, respawn_player)
+
 namespace
 {
 constexpr size_t kMaxUsernameLength = 24;
 constexpr float kPlayerMaxHealth = 100.f;
+constexpr int64_t kPlayerRespawnDelayMillis = 1000;
 
 bool IsValidUsername(const std::string& Name)
 {
@@ -239,6 +252,12 @@ bool UpdateOnlinePlayerTransform(
     if (!PlayerRow || !PlayerRow->online)
     {
         return false;
+    }
+
+    // A dead body stays where it fell. The respawn reducer writes the next transform.
+    if (PlayerRow->health <= 0.f)
+    {
+        return true;
     }
 
     PlayerRow->position = Position;
@@ -468,6 +487,34 @@ void TickMonsters(ReducerContext& ctx)
     }
 }
 
+bool HasPendingRespawn(ReducerContext& ctx, const std::string& Name)
+{
+    for (const auto& Row : ctx.db[player_respawn_timer])
+    {
+        if (Row.name == Name)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// (0, 0, 0) with a zero rotator is the unset transform. Clients replace it with the level spawn anchor.
+void SchedulePlayerRespawn(ReducerContext& ctx, const Player& PlayerRow)
+{
+    if (PlayerRow.health > 0.f || HasPendingRespawn(ctx, PlayerRow.name))
+    {
+        return;
+    }
+
+    ctx.db[player_respawn_timer].insert(PlayerRespawnTimer{
+        0,
+        ScheduleAt::time(ctx.timestamp + TimeDuration::from_millis(kPlayerRespawnDelayMillis)),
+        PlayerRow.name
+    });
+}
+
 void EnsureMonsterTick(ReducerContext& ctx)
 {
     if (ctx.db[monster_tick_timer].count() > 0)
@@ -588,6 +635,7 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         player->online = true;
         player->updated_at = ctx.timestamp;
         ctx.db[player_name].update(*player);
+        SchedulePlayerRespawn(ctx, *player);
         return Ok();
     }
 
@@ -644,6 +692,32 @@ SPACETIMEDB_REDUCER(damage_player, ReducerContext ctx, float amount)
 
     const float NextHealth = PlayerRow->health - amount;
     PlayerRow->health = NextHealth > 0.f ? NextHealth : 0.f;
+    PlayerRow->updated_at = ctx.timestamp;
+    ctx.db[player_name].update(*PlayerRow);
+    if (PlayerRow->health <= 0.f)
+    {
+        SchedulePlayerRespawn(ctx, *PlayerRow);
+    }
+    return Ok();
+}
+
+// Runs one second after health reaches 0. Full health, and the unset transform so clients use the level spawn.
+SPACETIMEDB_REDUCER(respawn_player, ReducerContext ctx, PlayerRespawnTimer timer)
+{
+    if (ctx.connection_id)
+    {
+        return Err("Not a client reducer");
+    }
+
+    auto PlayerRow = ctx.db[player_name].find(timer.name);
+    if (!PlayerRow || PlayerRow->health > 0.f)
+    {
+        return Ok();
+    }
+
+    PlayerRow->health = kPlayerMaxHealth;
+    PlayerRow->position = DbVector3{0.f, 0.f, 0.f};
+    PlayerRow->rotation = DbRotator{0.f, 0.f, 0.f};
     PlayerRow->updated_at = ctx.timestamp;
     ctx.db[player_name].update(*PlayerRow);
     return Ok();

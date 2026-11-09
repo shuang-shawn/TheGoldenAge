@@ -3,12 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Character/TheGoldenAgeHealthComponent.h"
 #include "GameFramework/Character.h"
 #include "TheGoldenAgePlayerCharacter.generated.h"
 
 class UCameraComponent;
 class UInputAction;
 class USpringArmComponent;
+class UWidgetComponent;
 
 UENUM(BlueprintType)
 enum class ETheGoldenAgeBattleMoveDirection : uint8
@@ -22,7 +24,9 @@ enum class ETheGoldenAgeBattleMoveDirection : uint8
 
 /**
  * Top-down player character: camera-relative WASD movement, movement-facing, battle in-place locomotion.
- * Clip choice lives in ABP_Hero and ABP_Explorer. This class reports the move direction and play rate.
+ * Clip choice lives in ABP_Hero and ABP_Explorer. This class reports the move direction, play rate, and bIsDead.
+ * Health comes from the player row. At zero the character stops and the Anim Blueprint plays its die clip once.
+ * One second later the server restores full health at the default spawn, and this pawn walks again.
  */
 UCLASS()
 class THEGOLDENAGE_API ATheGoldenAgePlayerCharacter : public ACharacter
@@ -59,12 +63,34 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Movement")
 	void RequestFaceDirection(const FVector& WorldDirection);
 
+	/** Asks the server to damage this logged-in player. The row update applies the result. */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	void ApplyDamage(float Amount);
+
+	void ApplyServerHealth(float NewHealth);
+
+	/** Walking again after a server respawn. Call after the pawn is already at the spawn point. */
+	void HandleRespawned();
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	UTheGoldenAgeHealthComponent* GetHealth() const { return Health; }
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	bool IsDead() const;
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<USpringArmComponent> CameraBoom;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
+	TObjectPtr<UTheGoldenAgeHealthComponent> Health;
+
+	/** Screen-space bar. Pivot is the top edge, so the bar hangs below the feet. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
+	TObjectPtr<UWidgetComponent> HealthBar;
 
 	/** Boom pitch while orbiting. More negative looks steeper down at the character. */
 	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "-85", ClampMax = "-10"))
@@ -126,6 +152,10 @@ protected:
 	void UpdateMovementFacing(float DeltaSeconds);
 	void UpdateRemotePresentationVelocity(float DeltaSeconds);
 	void UpdateBattleLocomotionAnimation();
+	void BindHealthBar();
+
+	UFUNCTION()
+	void HandleDied();
 
 	ETheGoldenAgeBattleMoveDirection SelectBattleMoveDirection(const FVector& WorldVelocity) const;
 	FVector GetLocomotionVelocity() const;

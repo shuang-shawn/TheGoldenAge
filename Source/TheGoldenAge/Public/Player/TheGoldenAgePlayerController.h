@@ -20,6 +20,10 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;
 
+	/** Console: DamageLocalPlayer 25. Asks the server to damage the possessed player. */
+	UFUNCTION(Exec)
+	void DamageLocalPlayer(float Amount);
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 

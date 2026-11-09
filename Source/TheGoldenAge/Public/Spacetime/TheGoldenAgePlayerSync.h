@@ -40,6 +40,9 @@ public:
 	bool IsLoggedIn() const { return bLoggedIn; }
 	const FString& GetLocalUsername() const { return LocalUsername; }
 
+	/** Calls damage_player for the logged-in player. The server writes the new health. */
+	void RequestLocalDamage(float Amount);
+
 private:
 	void Connect();
 	void Disconnect();

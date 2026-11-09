@@ -369,8 +369,6 @@ void UTheGoldenAgePlayerSync::Disconnect()
 	if (Conn)
 	{
 		Conn->Reducers->OnLogin.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginReducer);
-		Conn->Reducers->OnClaimMonster.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleClaimMonster);
-		Conn->Reducers->OnReleaseMonster.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleReleaseMonster);
 		Conn->OnUnhandledReducerError.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleReducerError);
 		if (Monsters && Conn->Db && Conn->Db->Monster)
 		{
@@ -428,8 +426,6 @@ void UTheGoldenAgePlayerSync::HandleConnect(UDbConnection* InConn, FSpacetimeDBI
 	InConn->Db->Player->OnUpdate.AddDynamic(this, &UTheGoldenAgePlayerSync::HandlePlayerUpdate);
 
 	InConn->Reducers->OnLogin.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginReducer);
-	InConn->Reducers->OnClaimMonster.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleClaimMonster);
-	InConn->Reducers->OnReleaseMonster.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleReleaseMonster);
 	InConn->OnUnhandledReducerError.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleReducerError);
 
 	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
@@ -484,7 +480,6 @@ void UTheGoldenAgePlayerSync::HandleDisconnect(UDbConnection* InConn, const FStr
 
 	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
 	{
-		Monsters->NotifyDisconnected();
 		Monsters->SetConnection(nullptr);
 	}
 
@@ -708,32 +703,6 @@ void UTheGoldenAgePlayerSync::HandleLoginReducer(
 	UE_LOG(LogTemp, Log, TEXT("Logged in as %s"), *LocalUsername);
 }
 
-void UTheGoldenAgePlayerSync::HandleClaimMonster(const FReducerEventContext& Context, uint64 Id)
-{
-	if (!Conn || Context.Event.CallerConnectionId != Conn->GetConnectionId() || Context.Event.Status.IsCommitted())
-	{
-		return;
-	}
-
-	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
-	{
-		Monsters->NotifyClaimRejected(Id);
-	}
-}
-
-void UTheGoldenAgePlayerSync::HandleReleaseMonster(const FReducerEventContext& Context, uint64 Id)
-{
-	if (!Conn || Context.Event.CallerConnectionId != Conn->GetConnectionId() || Context.Event.Status.IsCommitted())
-	{
-		return;
-	}
-
-	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
-	{
-		Monsters->NotifyReleaseRejected(Id);
-	}
-}
-
 void UTheGoldenAgePlayerSync::HandleReducerError(const FReducerEventContext& Context, const FString& Error)
 {
 	if (!bLoginPending)
@@ -771,6 +740,16 @@ void UTheGoldenAgePlayerSync::HandlePlayerUpdate(const FEventContext& Context, c
 	ApplyPlayerRow(NewRow);
 }
 
+void UTheGoldenAgePlayerSync::RequestLocalDamage(float Amount)
+{
+	if (!Conn || !Conn->Reducers || !bLoggedIn || !FMath::IsFinite(Amount) || Amount <= 0.f)
+	{
+		return;
+	}
+
+	Conn->Reducers->DamagePlayer(Amount);
+}
+
 void UTheGoldenAgePlayerSync::SendLocalTransform()
 {
 	if (!Conn || !Conn->Reducers || !bLoggedIn || !bLocalPossessionReady)
@@ -782,6 +761,14 @@ void UTheGoldenAgePlayerSync::SendLocalTransform()
 	if (!Pawn)
 	{
 		return;
+	}
+
+	if (const ATheGoldenAgePlayerCharacter* PlayerCharacter = Cast<ATheGoldenAgePlayerCharacter>(Pawn))
+	{
+		if (PlayerCharacter->IsDead())
+		{
+			return;
+		}
 	}
 
 	const FVector Location = Pawn->GetActorLocation();
@@ -1018,18 +1005,27 @@ void UTheGoldenAgePlayerSync::ApplyPlayerRow(const FPlayerType& Row)
 		return;
 	}
 
-	if (IsLocalPlayerRow(Row) && bLocalPossessionReady)
+	ATheGoldenAgePlayerCharacter* PlayerCharacter = Cast<ATheGoldenAgePlayerCharacter>(Pawn);
+	const bool bWasDead = PlayerCharacter && PlayerCharacter->IsDead();
+	if (PlayerCharacter)
 	{
-		const APawn* LocalPawn = GetLocalPawn();
-		if (LocalPawn && LocalPawn == Pawn)
-		{
-			return;
-		}
+		PlayerCharacter->ApplyServerHealth(Row.Health);
+	}
+
+	const bool bRespawned = bWasDead && PlayerCharacter && !PlayerCharacter->IsDead();
+	const bool bLocalAuthoritative = IsLocalPlayerRow(Row) && bLocalPossessionReady && GetLocalPawn() == Pawn;
+	if (bLocalAuthoritative && !bRespawned)
+	{
+		return;
 	}
 
 	const FVector Location = ResolveSpawnLocation(Row);
 	const FRotator Rotation = ResolveSpawnRotation(Row);
 	Pawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+	if (bRespawned)
+	{
+		PlayerCharacter->HandleRespawned();
+	}
 
 	if (bClaimLocal && !bLocalPossessionReady)
 	{
