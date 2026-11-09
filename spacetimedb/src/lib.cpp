@@ -129,7 +129,8 @@ SPACETIMEDB_STRUCT(MonsterAttackHitCooldown, cooldown_key, last_hit_at)
 SPACETIMEDB_TABLE(MonsterAttackHitCooldown, monster_attack_hit_cooldown, Private)
 FIELD_PrimaryKey(monster_attack_hit_cooldown, cooldown_key)
 
-// Private. One interval row keeps monster_tick running. Clients never subscribe to it.
+// Private. One interval row keeps monster_tick running while a player is online.
+// monster_tick deletes it when nobody is online. login inserts it again. Clients never subscribe to it.
 struct MonsterTickTimer
 {
     uint64_t scheduled_id;
@@ -593,7 +594,7 @@ void TickOneMonster(ReducerContext& ctx, Monster Row)
     ctx.db[monster_id].update(Row);
 }
 
-void TickMonsters(ReducerContext& ctx)
+void TickMonsters(ReducerContext& ctx, uint64_t TickTimerId)
 {
     bool bAnyOnline = false;
     for (const auto& Row : ctx.db[player])
@@ -625,6 +626,9 @@ void TickMonsters(ReducerContext& ctx)
             Row.updated_at = ctx.timestamp;
             ctx.db[monster_id].update(Row);
         }
+
+        ctx.db[monster_tick_timer_scheduled_id].delete_by_key(TickTimerId);
+        LOG_INFO("Stopped monster_tick; no players online");
         return;
     }
 
@@ -743,8 +747,7 @@ SPACETIMEDB_REDUCER(ensure_monster_tick, ReducerContext ctx)
 
 SPACETIMEDB_REDUCER(monster_tick, ReducerContext ctx, MonsterTickTimer timer)
 {
-    (void)timer;
-    TickMonsters(ctx);
+    TickMonsters(ctx, timer.scheduled_id);
     return Ok();
 }
 
@@ -810,6 +813,7 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         player->updated_at = ctx.timestamp;
         ctx.db[player_name].update(*player);
         SchedulePlayerRespawn(ctx, *player);
+        EnsureMonsterTick(ctx);
         return Ok();
     }
 
@@ -832,6 +836,7 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         kPlayerMaxHealth,
         false
     });
+    EnsureMonsterTick(ctx);
     return Ok();
 }
 
