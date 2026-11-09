@@ -215,14 +215,16 @@ Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable
 
 ### High-level architecture (current)
 
-The project has a **minimal top-down player stack** in C++ with `BP_TinyHeroPolyart` as the visual/animation Blueprint child. **[Design]** full architecture in [Gameplay design requirements](#gameplay-design-requirements). High-level runtime flow:
+The project has a **minimal top-down player stack** in C++. `BP_Hero` and `BP_Explorer` share `ATheGoldenAgePlayerCharacter` and differ by appearance. **[Design]** full architecture in [Gameplay design requirements](#gameplay-design-requirements). High-level runtime flow:
 
 ```
 TheGoldenAge.uproject
     └── Module: TheGoldenAge
-            ├── ATheGoldenAgeGameMode → Default pawn: BP_TinyHeroPolyart
+            ├── ATheGoldenAgeGameMode → no default pawn; UTheGoldenAgePlayerSync possesses after login
             ├── ATheGoldenAgePlayerController → IMC_Default + IA_Move
             └── ATheGoldenAgePlayerCharacter (BP parent) → movement, camera, battle anims
+                    ├── BP_Hero (role 0)
+                    └── BP_Explorer (role 1)
 Content/_Main/
     ├── Lvl_Main
     ├── Input/ (IA_Move, IMC_Default)
@@ -240,7 +242,7 @@ Config/
 
 | System | Responsibility | Status |
 |--------|----------------|--------|
-| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Partial** — `ATheGoldenAgeGameMode`, `BP_TinyHeroPolyart`, `ATheGoldenAgePlayerController`. |
+| Game framework (GameMode, Pawn, PlayerController, etc.) | Core play loop | **Partial** — `ATheGoldenAgeGameMode`, `BP_Hero`, `BP_Explorer`, `ATheGoldenAgePlayerController`. Login chooses the pawn. |
 | Camera | Top-down follow camera | **Implemented** — spring arm + lag on `ATheGoldenAgePlayerCharacter`. |
 | Player movement & facing | WASD, movement-facing, combat rotation | **Partial** — movement + facing; `RequestFaceDirection` stub for future combat. |
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
@@ -258,7 +260,7 @@ Config/
 
 | Class | Role |
 |-------|------|
-| `ATheGoldenAgeGameMode` | Default pawn class `BP_TinyHeroPolyart`; `GetDefaultPawnClassForController` loads BP if needed |
+| `ATheGoldenAgeGameMode` | No default pawn. `RestartPlayer` does nothing; `UTheGoldenAgePlayerSync` possesses `BP_Hero` or `BP_Explorer` after login. |
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
 | `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` (`PlayerActorTag`) on every instance. |
 | `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Response is up to the child. |
@@ -266,7 +268,8 @@ Config/
 
 **Blueprints / content:**
 
-- **`BP_TinyHeroPolyart`** — parent `ATheGoldenAgePlayerCharacter`; mesh `SK_TinyHeroPolyart`; sword/shield attached to `CharacterMesh0`; `AutoPossessPlayer` = Player0. Actor tag `Player` saved on the Blueprint.
+- **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Mesh `SK_TinyHeroPolyart`, Tiny Hero battle in-place clips, sword/shield on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
+- **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
 - **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`.
 - **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
 - **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IMC_Default`.
@@ -287,7 +290,7 @@ Config/
 
 ### Backend / external integrations
 
-- **None in game code.**
+- **SpacetimeDB** module in `spacetimedb/` (`maincloud`, database identity in `spacetimedb/spacetime.json`). Public `player` rows keep username, stable identity, transform, online flag, and `role` (`0` Hero, `1` Explorer). `login` creates the row only for a new username and stores the chosen role; an existing account keeps its role. `UTheGoldenAgePlayerSync` subscribes, spawns `BP_Hero` or `BP_Explorer`, and possesses the local pawn. Published to `maincloud` on 2026-11-09. A client built before the `role` field cannot read the table until it is recompiled.
 - Local **unreal-mcp** server for editor automation via MCP (developer machine setup; optional).
 - Android File Server plugin settings exist in `DefaultEngine.ini` (editor/deploy aid); treat credentials in ini as **environment secrets** — do not copy tokens into this document.
 
@@ -587,6 +590,24 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Role choice was sending an empty username
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Clicking Hero or Explorer logged in with an empty username, so the server rejected it as an invalid name. `SubmitLogin` now copies the credentials before it clears the pending fields. |
+| **Files / systems** | `UTheGoldenAgePlayerSync::SubmitLogin`. |
+| **Reason** | The role buttons passed `PendingUsername` by reference, and that string was reset before the reducer call. |
+| **Follow-up** | Live Coding, then create a new account and choose Hero or Explorer. Login should proceed with the typed username. |
+
+### 2026-11-09 — New players choose Hero or Explorer
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | After a new username and password, login asks for Hero or Explorer before the player row is created. Existing usernames log in immediately and keep the stored role. The client spawns and possesses `BP_Hero` or `BP_Explorer`. `BP_Explorer` is now a `ATheGoldenAgePlayerCharacter`, same movement, camera, and input as `BP_Hero`, with the dog mesh and Animal Hero clips. |
+| **Files / systems** | `spacetimedb/src/lib.cpp` (`player.role`, `login` role argument, default `0` for rows that already exist); Unreal bindings `FPlayerType.Role` and `FLoginArgs.Role`; `UTheGoldenAgeLoginWidget`; `UTheGoldenAgePlayerSync`; `ETheGoldenAgePlayerRole`; `BP_Explorer`. |
+| **Reason** | A new account should pick an appearance, and both roles should play with the same character logic. |
+| **Follow-up** | Module published to `maincloud` on 2026-11-09 (`player.role` default 0; existing rows kept). Live Coding is still required before PIE, because the published row layout no longer matches the old client. Explorer strafe clips do not exist in the Animal Hero pack, so every move direction uses the forward in-place walk. |
 
 ### 2026-11-09 — Chest Monster finishes the current attack before idle
 
