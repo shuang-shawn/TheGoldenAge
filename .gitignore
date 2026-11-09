@@ -64,6 +64,9 @@ Plugins/**/Binaries/*
 # Builds
 Build/*
 
+# SpacetimeDB module compile output
+spacetimedb/build/
+
 # Whitelist PakBlacklist-<BuildConfiguration>.txt files
 !Build/*/
 Build/*/**
