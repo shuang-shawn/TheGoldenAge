@@ -1,9 +1,9 @@
 ---
-description: Implementation, Live Coding compilation, and manual verification workflow for Unreal work
+description: Implementation workflow; the user compiles manually after each task
 alwaysApply: true
 ---
 
-# Implementation, Compilation, and Manual Verification Policy
+# Implementation and Manual Verification Policy
 
 After completing any implementation, follow this workflow:
 
@@ -13,16 +13,13 @@ After completing any implementation, follow this workflow:
 - Review the modified code and relevant assets for obvious errors.
 - Avoid making unrelated changes or expanding the task scope.
 
-## 2. Compilation and Live Coding
+## 2. Compilation
 
-- Keep the Unreal Editor open during development and compilation.
-- Do NOT close or restart Unreal Editor just to perform a full project compilation.
-- Use Unreal Engine Live Coding or the appropriate in-editor hot-reload/recompilation workflow when compiling C++ changes.
-- A successful Live Coding compilation is sufficient verification for routine implementation tasks.
-- Do not initiate a full rebuild or full project compilation unless the user explicitly requests it or Live Coding cannot compile the changes.
-- If Live Coding fails or the changes require a full rebuild, explain why and provide the necessary steps for the user to perform it. Do not independently close the editor.
-- Clearly report whether Live Coding compilation succeeded or failed.
-- Never claim successful compilation without an actual successful compilation result.
+- Do not trigger Live Coding, hot reload, or any other compile (in the editor or from the command line) after a task.
+- Leave compilation to the user. They compile manually when the task is done.
+- Do not close or restart Unreal Editor, and do not start a full project rebuild.
+- In the final report, tell the user to compile with Live Coding in the open editor. Do not report a compile result unless they already compiled and shared that result.
+- Never claim successful compilation without an actual successful compilation result from the user.
 
 ## 3. Manual Verification Instructions
 
@@ -44,7 +41,7 @@ Include relevant details: which Blueprint to open, which settings to inspect, wh
 - Do not automatically launch the game or Unreal Editor solely to perform gameplay verification.
 - Do not spend time performing manual gameplay checks on the user's behalf.
 - Do not treat an unperformed gameplay test as a verified result.
-- Compilation is the required technical verification after implementation. Runtime and gameplay verification is performed by the user.
+- Do not treat an unperformed compile as a verified result. Runtime and gameplay verification is performed by the user.
 
 ## 5. Final Implementation Report
 
@@ -52,8 +49,8 @@ After each implementation, provide a concise summary:
 
 1. **Implemented:** What was changed or added.
 2. **Files / Assets Modified:** Relevant source files, Blueprints, and assets.
-3. **Compilation:** Whether compilation succeeded (Live Coding result).
+3. **Compilation:** The user compiles manually with Live Coding. State that step. Do not invent a compile result.
 4. **Manual Verification:** A clear checklist of what to test and how.
 5. **Known Limitations:** Any incomplete functionality or potential issues.
 
-Spend development time on correct implementation and verified compilation; leave gameplay verification under the user's control.
+Spend development time on the implementation. Leave compilation and gameplay verification under the user's control.

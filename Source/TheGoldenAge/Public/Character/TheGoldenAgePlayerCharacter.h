@@ -101,6 +101,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "0.25", ClampMax = "3.0"))
 	float AnimPlayRateMax = 1.4f;
 
+	/** How long a remote pawn keeps its last move clip after position updates stop. */
+	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RemoteIdleGraceSeconds = 0.15f;
+
+	/** A position jump larger than this is a teleport, not locomotion. */
+	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "1.0"))
+	float RemoteTeleportDistance = 800.f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
 	TObjectPtr<UAnimSequence> IdleBattleAnimation;
 
@@ -121,12 +129,19 @@ protected:
 
 	void UpdateTopDownCameraOrientation(float DeltaSeconds);
 	void UpdateMovementFacing(float DeltaSeconds);
+	void UpdateRemotePresentationVelocity(float DeltaSeconds);
 	void UpdateBattleLocomotionAnimation();
 
 	ETheGoldenAgeBattleMoveDirection SelectBattleMoveDirection(const FVector& WorldVelocity) const;
 	UAnimSequence* GetBattleAnimationForDirection(ETheGoldenAgeBattleMoveDirection Direction) const;
+	FVector GetLocomotionVelocity() const;
 
 	FVector LastMovementInputDirection = FVector::ZeroVector;
+	FVector RemotePresentationVelocity = FVector::ZeroVector;
+	FVector RemotePresentationLocation = FVector::ZeroVector;
+	float RemotePresentationSampleAge = 0.f;
+	float RemoteStillTime = 0.f;
+	bool bHasRemotePresentationSample = false;
 
 	float CameraPitch = -45.f;
 	float CameraYaw = 45.f;

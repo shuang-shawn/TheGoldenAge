@@ -717,7 +717,8 @@ void UTheGoldenAgePlayerSync::ConfigurePawnPresence(APawn* Pawn, bool bLocallyCo
 	Pawn->SetReplicateMovement(false);
 	Pawn->AutoPossessPlayer = EAutoReceiveInput::Disabled;
 	Pawn->AutoPossessAI = EAutoPossessAI::Disabled;
-	Pawn->SetActorTickEnabled(bLocallyControlled);
+	// Remote pawns still tick so locomotion can follow snapped transforms. Movement simulation stays off.
+	Pawn->SetActorTickEnabled(true);
 
 	if (UCharacterMovementComponent* Movement = Pawn->FindComponentByClass<UCharacterMovementComponent>())
 	{

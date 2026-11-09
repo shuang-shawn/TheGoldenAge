@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-08 (player movement, battle locomotion anims, Enhanced Input; editor PIE smoke-tested)  
+**Last verified against codebase:** 2026-11-08 (agents do not compile; the user runs Live Coding manually after each task)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -32,13 +32,13 @@ Cursor always applies `.cursor/rules/project-context.mdc`: read this file before
 2. Reuse existing systems, classes, functions, and utilities when appropriate.
 3. Maintain compatibility with existing systems and team members' work.
 4. Do not introduce new dependencies, plugins, or architectural patterns without a valid reason (record the decision if you do).
-5. If a change affects another system, verify integration (compile, smoke test in editor when possible).
+5. If a change affects another system, name the integration points for the user to check after they compile and smoke-test. Do not compile for them.
 6. Do not overwrite or remove another developer's work without understanding its purpose.
 7. **Do not configure the game from runtime startup code** (e.g. `BeginPlay`, `PostInitializeComponents`, constructors that patch content) when the same result can be achieved by editing assets. Example: attaching the weapon and shield to the left/right hand sockets must be set up in the Blueprint/asset, not via code on startup. Use MCP to edit the asset/Blueprint/level directly; **if MCP cannot do it, tell the user the exact manual steps to perform in the editor** instead of falling back to startup code. Runtime code should implement gameplay behaviour, not assemble or repair content configuration.
 
 ### After making changes
 
-1. **After implementing each task, run Live Coding compile** in the open Unreal Editor and confirm **successful compilation** before treating the task as done. Keep the editor open; do not close or restart it for a full project rebuild unless Live Coding cannot compile the change. If Live Coding fails or a full rebuild is required, explain why and give the user the steps. Never claim a successful compile without an actual successful result.
+1. **Do not compile.** Do not trigger Live Coding, hot reload, or a command-line build. The user compiles manually with Live Coding in the open editor after the task. Do not close or restart the editor, and do not start a full rebuild. In the report, tell them to compile. Never claim a successful compile unless they already compiled and shared the result.
 2. Update `PROJECT_CONTEXT.md` to reflect **meaningful** changes.
 3. Update architecture, technical implementation, and development status sections as needed.
 4. Add an entry to the [Development Change Log](#h-development-change-log).
@@ -384,7 +384,7 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 **Playable pawn:** `Content/RPGHeroSquad/CharacterBP/BP_TinyHeroPolyart` (child of `ATheGoldenAgePlayerCharacter`).
 
-**Locomotion logic (C++):** `AnimationSingleNode` on skeletal mesh; switches sequences from velocity (no root-motion drive). Idle when speed is below `MinMovingSpeed` (default 10).
+**Locomotion logic (C++):** `AnimationSingleNode` on skeletal mesh; switches sequences from velocity (no root-motion drive). Idle when speed is below `MinMovingSpeed` (default 10). The local pawn uses `CharacterMovement` velocity. Other online pawns are transform-snapped by `UTheGoldenAgePlayerSync` with movement simulation disabled, so their actor tick stays on and locomotion uses a velocity derived from position deltas (`RemoteIdleGraceSeconds` holds the last move clip between snaps; jumps over `RemoteTeleportDistance` do not count as steps). Direction and play rate use the same four in-place clips as the local pawn. Camera and movement-facing still run only on the locally controlled pawn.
 
 | Local velocity (character space) | Animation asset |
 |----------------------------------|-----------------|
@@ -479,7 +479,7 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | Step | Notes |
 |------|--------|
 | **Generate project files** | Right-click `.uproject` or use UE batch files |
-| **Build** | `TheGoldenAgeEditor` Win64 target (primary dev platform per artifacts). **After each implementation task, run Live Coding** in the open editor and confirm successful compilation (see [After making changes](#after-making-changes)). |
+| **Build** | `TheGoldenAgeEditor` Win64 target (primary dev platform per artifacts). **The user runs Live Coding manually** after each implementation task. Agents do not compile (see [After making changes](#after-making-changes)). |
 | **Run** | Editor PIE on `Lvl_Main` |
 | **Automated tests** | **None** in repo |
 | **CI** | **None** configured |
@@ -575,6 +575,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 
 Entries are **newest first**. Preserve all history.
 
+### 2026-11-08 — User compiles manually; agents do not trigger Live Coding
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Agents no longer run Live Coding or any other compile after a task. The user compiles manually in the open editor when the work is done. |
+| **Files / systems** | `.cursor/rules/unreal-implementation-workflow.mdc`; `PROJECT_CONTEXT.md` — [After making changes](#after-making-changes), [Build and testing](#build-and-testing), [AI agent responsibilities](#ai-agent-responsibilities). |
+| **Reason** | Compilation stays under the user's control. |
+| **Follow-up** | None. |
+
 ### 2026-11-08 — Always-on rule to maintain PROJECT_CONTEXT.md
 
 | Field | Detail |
@@ -583,6 +592,15 @@ Entries are **newest first**. Preserve all history.
 | **Files / systems** | `.cursor/rules/project-context.mdc`, `.gitignore` (track `.cursor/rules/` only), `PROJECT_CONTEXT.md`. |
 | **Reason** | Make the existing context workflow automatic for every agent task, and keep the rule in the repo. |
 | **Follow-up** | None. |
+
+### 2026-11-08 — Remote player movement animations
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Other online pawns now play the same battle move clips as the local pawn while their snapped transform is changing, and return to idle after they stop. |
+| **Files / systems** | `ATheGoldenAgePlayerCharacter` presentation velocity; `UTheGoldenAgePlayerSync::ConfigurePawnPresence` keeps remote actor tick enabled. |
+| **Reason** | Remote pawns were teleported with movement disabled and actor tick off, so `GetVelocity()` stayed zero and the idle single-node clip never switched. |
+| **Follow-up** | In a two-client session, move one character and confirm the other window shows forward/back/left/right clips, then idle when movement stops. |
 
 ### 2026-11-08 — Require Live Coding compile after each task
 
@@ -700,7 +718,7 @@ Shared rules for **all developers and AI agents**. Remote: `https://github.com/s
 
 **After modifying the project**
 
-1. **Run Live Coding compile** and confirm successful compilation before finishing the task (see [After making changes](#after-making-changes)).
+1. **Do not compile.** Leave Live Coding to the user (see [After making changes](#after-making-changes)).
 2. Review `git diff` and `git lfs status` (if available).
 3. Confirm new binaries are LFS-tracked, not plain blobs.
 4. Update `PROJECT_CONTEXT.md` if Git conventions, content layout, or repo state changed materially.

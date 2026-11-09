@@ -31,7 +31,7 @@ public:
 	static const TCHAR* ServerUri;
 	static const TCHAR* DatabaseIdentity;
 	static const TCHAR* PlayerPawnClassPath;
-	static constexpr float SyncIntervalSeconds = 0.0167f;
+	static constexpr float SyncIntervalSeconds = 0.01f;
 
 	static bool IsValidUsername(const FString& Username, FString& OutError);
 

@@ -129,8 +129,17 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	UpdateTopDownCameraOrientation(DeltaSeconds);
-	UpdateMovementFacing(DeltaSeconds);
+	if (IsLocallyControlled())
+	{
+		UpdateTopDownCameraOrientation(DeltaSeconds);
+		UpdateMovementFacing(DeltaSeconds);
+	}
+	else
+	{
+		// Other players are moved by transform snaps, so CharacterMovement velocity stays zero.
+		UpdateRemotePresentationVelocity(DeltaSeconds);
+	}
+
 	UpdateBattleLocomotionAnimation();
 }
 
@@ -266,6 +275,56 @@ void ATheGoldenAgePlayerCharacter::UpdateTopDownCameraOrientation(float DeltaSec
 	CameraBoom->SetWorldRotation(SmoothedRotation);
 }
 
+void ATheGoldenAgePlayerCharacter::UpdateRemotePresentationVelocity(float DeltaSeconds)
+{
+	const FVector CurrentLocation = GetActorLocation();
+	if (!bHasRemotePresentationSample)
+	{
+		RemotePresentationLocation = CurrentLocation;
+		bHasRemotePresentationSample = true;
+		RemotePresentationVelocity = FVector::ZeroVector;
+		RemotePresentationSampleAge = 0.f;
+		RemoteStillTime = 0.f;
+		return;
+	}
+
+	RemotePresentationSampleAge += DeltaSeconds;
+	const FVector Delta = CurrentLocation - RemotePresentationLocation;
+	const float Distance2D = Delta.Size2D();
+
+	if (Distance2D > RemoteTeleportDistance)
+	{
+		RemotePresentationLocation = CurrentLocation;
+		RemotePresentationVelocity = FVector::ZeroVector;
+		RemotePresentationSampleAge = 0.f;
+		RemoteStillTime = 0.f;
+		return;
+	}
+
+	if (Distance2D >= 1.f)
+	{
+		const float SampleDt = FMath::Max(RemotePresentationSampleAge, KINDA_SMALL_NUMBER);
+		RemotePresentationVelocity = Delta / SampleDt;
+		RemotePresentationLocation = CurrentLocation;
+		RemotePresentationSampleAge = 0.f;
+		RemoteStillTime = 0.f;
+		return;
+	}
+
+	RemoteStillTime += DeltaSeconds;
+	if (RemoteStillTime >= RemoteIdleGraceSeconds)
+	{
+		RemotePresentationVelocity = FVector::ZeroVector;
+		// Drop the idle gap so the next step is not averaged down into a standstill.
+		RemotePresentationSampleAge = 0.f;
+	}
+}
+
+FVector ATheGoldenAgePlayerCharacter::GetLocomotionVelocity() const
+{
+	return IsLocallyControlled() ? GetVelocity() : RemotePresentationVelocity;
+}
+
 void ATheGoldenAgePlayerCharacter::UpdateMovementFacing(float DeltaSeconds)
 {
 	const float Speed2D = GetVelocity().Size2D();
@@ -340,11 +399,12 @@ void ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation()
 		MeshComp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	}
 
-	const float Speed2D = GetVelocity().Size2D();
+	const FVector LocomotionVelocity = GetLocomotionVelocity();
+	const float Speed2D = LocomotionVelocity.Size2D();
 	const bool bIsMoving = Speed2D >= MinMovingSpeed;
 
 	CurrentBattleMoveDirection = bIsMoving
-		? SelectBattleMoveDirection(GetVelocity())
+		? SelectBattleMoveDirection(LocomotionVelocity)
 		: ETheGoldenAgeBattleMoveDirection::None;
 
 	UAnimSequence* DesiredAnimation = bIsMoving
