@@ -4,6 +4,8 @@
 
 #include "Character/TheGoldenAgeHealthComponent.h"
 #include "Character/TheGoldenAgeMonster.h"
+#include "Player/TheGoldenAgePlayerController.h"
+#include "Spacetime/TheGoldenAgeMonsterSync.h"
 #include "Spacetime/TheGoldenAgePlayerSync.h"
 #include "UI/TheGoldenAgeHealthBarWidget.h"
 
@@ -15,6 +17,7 @@
 #include "Animation/AnimNode_SequencePlayer.h"
 #include "Animation/AnimSequenceBase.h"
 #include "EnhancedInputComponent.h"
+#include "Engine/OverlapResult.h"
 #include "InputAction.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -25,6 +28,46 @@
 
 namespace
 {
+constexpr float AttackEndToleranceSeconds = 0.001f;
+
+FAnimNode_SequencePlayer* FindHeroAttackSequencePlayer(UAnimInstance* AnimInstance, const UAnimSequenceBase* ExpectedAttackSequence)
+{
+	const IAnimClassInterface* AnimClass = AnimInstance
+		? IAnimClassInterface::GetFromClass(AnimInstance->GetClass())
+		: nullptr;
+	if (!AnimClass)
+	{
+		return nullptr;
+	}
+
+	for (const FStructProperty* NodeProperty : AnimClass->GetAnimNodeProperties())
+	{
+		if (!NodeProperty || NodeProperty->Struct != FAnimNode_SequencePlayer::StaticStruct())
+		{
+			continue;
+		}
+
+		FAnimNode_SequencePlayer* Player = NodeProperty->ContainerPtrToValuePtr<FAnimNode_SequencePlayer>(AnimInstance);
+		const UAnimSequenceBase* Sequence = Player ? Player->GetSequence() : nullptr;
+		if (!Sequence)
+		{
+			continue;
+		}
+
+		if (ExpectedAttackSequence && Sequence == ExpectedAttackSequence)
+		{
+			return Player;
+		}
+
+		if (Sequence->GetName().Contains(TEXT("Attack01")))
+		{
+			return Player;
+		}
+	}
+
+	return nullptr;
+}
+
 void ApplyLocomotionPlayRates(UAnimInstance* AnimInstance, float MovePlayRate)
 {
 	const IAnimClassInterface* AnimClass = AnimInstance
@@ -51,7 +94,9 @@ void ApplyLocomotionPlayRates(UAnimInstance* AnimInstance, float MovePlayRate)
 
 		// Idle clips stay at 1. Move clips, including the Explorer sprint used for every direction, scale with speed.
 		const FString SequenceName = Sequence->GetName();
-		const float PlayRate = SequenceName.Contains(TEXT("Idle")) || SequenceName.Contains(TEXT("Die"))
+		const float PlayRate = SequenceName.Contains(TEXT("Idle"))
+			|| SequenceName.Contains(TEXT("Die"))
+			|| SequenceName.Contains(TEXT("Attack"))
 			? 1.f
 			: MovePlayRate;
 		Player->SetPlayRate(PlayRate);
@@ -136,6 +181,20 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 	{
 		CameraRotateAction = CameraRotateActionAsset.Object;
 	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> AttackActionAsset(
+		TEXT("/Game/_Main/Input/IA_Attack.IA_Attack"));
+	if (AttackActionAsset.Succeeded())
+	{
+		AttackAction = AttackActionAsset.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> HeroAttackSequenceAsset(
+		TEXT("/Game/RPGHeroSquad/Animation/TinyHero/Anim_Attack01_TinyHero.Anim_Attack01_TinyHero"));
+	if (HeroAttackSequenceAsset.Succeeded())
+	{
+		HeroAttackSequence = HeroAttackSequenceAsset.Object;
+	}
 }
 
 void ATheGoldenAgePlayerCharacter::BeginPlay()
@@ -164,6 +223,10 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 	if (!CameraRotateAction)
 	{
 		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
+	}
+	if (!AttackAction)
+	{
+		AttackAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Attack.IA_Attack"));
 	}
 
 	if (Health)
@@ -197,7 +260,7 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 	{
 		ATheGoldenAgeMonster::ApplyLocalViewerVisibility(GetWorld(), this);
 		UpdateTopDownCameraOrientation(DeltaSeconds);
-		if (!bDead)
+		if (!bDead && !bIsAttacking)
 		{
 			UpdateMovementFacing(DeltaSeconds);
 		}
@@ -209,6 +272,7 @@ void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 	}
 
 	UpdateBattleLocomotionAnimation();
+	UpdateHeroAttackAnimation(DeltaSeconds);
 }
 
 void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -228,6 +292,10 @@ void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pl
 	{
 		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
 	}
+	if (!AttackAction)
+	{
+		AttackAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Attack.IA_Attack"));
+	}
 
 	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
@@ -245,6 +313,10 @@ void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pl
 			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Started, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateStarted);
 			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Completed, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateCompleted);
 			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Canceled, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateCompleted);
+		}
+		if (AttackAction)
+		{
+			EnhancedInput->BindAction(AttackAction, ETriggerEvent::Started, this, &ATheGoldenAgePlayerCharacter::Attack);
 		}
 	}
 }
@@ -309,6 +381,83 @@ void ATheGoldenAgePlayerCharacter::OnCameraRotateStarted()
 		PC->GetMousePosition(SavedMouseX, SavedMouseY);
 		PC->CurrentMouseCursor = EMouseCursor::None;
 		PC->SetShowMouseCursor(false);
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::Attack(const FInputActionValue& /*Value*/)
+{
+	if (!IsLocallyControlled() || IsDead() || bIsAttacking)
+	{
+		return;
+	}
+
+	if (!ActorHasTag(HeroActorTag))
+	{
+		return;
+	}
+
+	if (ATheGoldenAgePlayerController* GoldenAgePC = Cast<ATheGoldenAgePlayerController>(GetController()))
+	{
+		FVector GroundTarget = FVector::ZeroVector;
+		if (GoldenAgePC->GetMouseCursorGroundLocationForPawn(GroundTarget))
+		{
+			RequestFaceDirection(GroundTarget - GetActorLocation());
+		}
+	}
+
+	BeginHeroAttackPresentation();
+}
+
+void ATheGoldenAgePlayerCharacter::BeginHeroAttackPresentation()
+{
+	bIsAttacking = true;
+	bHasAttackSample = false;
+	bHeroAttackHitApplied = false;
+	AttackElapsedSeconds = 0.f;
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (AnimInstance)
+	{
+		if (FAnimNode_SequencePlayer* AttackPlayer = FindHeroAttackSequencePlayer(AnimInstance, HeroAttackSequence))
+		{
+			AttackPlayer->SetAccumulatedTime(0.f);
+		}
+		PushHeroAttackAnimState(AnimInstance);
+	}
+
+	if (IsLocallyControlled())
+	{
+		NotifyLocalTransformPublish();
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::NotifyLocalTransformPublish()
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UTheGoldenAgePlayerSync* Sync = World->GetSubsystem<UTheGoldenAgePlayerSync>())
+		{
+			Sync->RequestLocalTransformPublish();
+		}
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::ApplyServerAttackState(bool bServerIsAttacking)
+{
+	if (IsLocallyControlled() || !ActorHasTag(HeroActorTag) || IsDead())
+	{
+		return;
+	}
+
+	if (bServerIsAttacking && !bIsAttacking)
+	{
+		BeginHeroAttackPresentation();
 	}
 }
 
@@ -483,6 +632,211 @@ void ATheGoldenAgePlayerCharacter::UpdateBattleLocomotionAnimation()
 	ApplyLocomotionPlayRates(AnimInstance, PlayRate);
 }
 
+void ATheGoldenAgePlayerCharacter::UpdateHeroAttackAnimation(float DeltaSeconds)
+{
+	if (!ActorHasTag(HeroActorTag))
+	{
+		return;
+	}
+
+	const bool bLocal = IsLocallyControlled();
+	if (!bLocal && !bIsAttacking)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (!AnimInstance)
+	{
+		return;
+	}
+
+	if (IsDead())
+	{
+		bIsAttacking = false;
+		bHasAttackSample = false;
+		bHeroAttackHitApplied = false;
+		AttackElapsedSeconds = 0.f;
+		PushHeroAttackAnimState(AnimInstance);
+		return;
+	}
+
+	if (bIsAttacking)
+	{
+		AttackElapsedSeconds += DeltaSeconds;
+
+		float ExpectedDuration = HeroAttackSequence ? HeroAttackSequence->GetPlayLength() : 0.f;
+		FAnimNode_SequencePlayer* AttackPlayer = FindHeroAttackSequencePlayer(AnimInstance, HeroAttackSequence);
+
+		bool bFinished = ExpectedDuration > KINDA_SMALL_NUMBER
+			&& AttackElapsedSeconds >= ExpectedDuration - AttackEndToleranceSeconds;
+
+		if (AttackPlayer)
+		{
+			const float PlayLength = AttackPlayer->GetCurrentAssetLength();
+			if (PlayLength > KINDA_SMALL_NUMBER)
+			{
+				ExpectedDuration = FMath::Max(ExpectedDuration, PlayLength);
+				const float PlaybackTime = AttackPlayer->GetCurrentAssetTime();
+				if (HasCurrentAttackFinished(PlaybackTime, PlayLength))
+				{
+					bFinished = true;
+				}
+				else
+				{
+					AttackSampleTime = PlaybackTime;
+					bHasAttackSample = true;
+				}
+			}
+			else
+			{
+				bHasAttackSample = false;
+			}
+
+			if (!bFinished && ExpectedDuration > KINDA_SMALL_NUMBER)
+			{
+				bFinished = AttackElapsedSeconds >= ExpectedDuration - AttackEndToleranceSeconds;
+			}
+		}
+		else
+		{
+			bHasAttackSample = false;
+		}
+
+		float HitPlaybackTime = AttackElapsedSeconds;
+		float HitPlayLength = ExpectedDuration;
+		if (AttackPlayer && AttackPlayer->GetCurrentAssetLength() > KINDA_SMALL_NUMBER)
+		{
+			HitPlaybackTime = AttackPlayer->GetCurrentAssetTime();
+			HitPlayLength = AttackPlayer->GetCurrentAssetLength();
+		}
+		else if (HeroAttackSequence)
+		{
+			HitPlayLength = FMath::Max(HitPlayLength, HeroAttackSequence->GetPlayLength());
+		}
+
+		if (bLocal)
+		{
+			TryHeroAttackHit(HitPlaybackTime, HitPlayLength);
+		}
+
+		if (bFinished)
+		{
+			const bool bWasAttacking = bIsAttacking;
+			bIsAttacking = false;
+			bHasAttackSample = false;
+			bHeroAttackHitApplied = false;
+			AttackElapsedSeconds = 0.f;
+			if (bLocal && bWasAttacking)
+			{
+				NotifyLocalTransformPublish();
+			}
+		}
+	}
+
+	PushHeroAttackAnimState(AnimInstance);
+}
+
+void ATheGoldenAgePlayerCharacter::TryHeroAttackHit(float AttackPlaybackTime, float AttackPlayLength)
+{
+	if (bHeroAttackHitApplied || HeroAttackDamage <= 0.f || HeroAttackRadius <= 0.f)
+	{
+		return;
+	}
+
+	const float EffectiveLength = AttackPlayLength > KINDA_SMALL_NUMBER
+		? AttackPlayLength
+		: (HeroAttackSequence ? HeroAttackSequence->GetPlayLength() : 0.f);
+	if (EffectiveLength <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const float HitTime = EffectiveLength * HeroAttackHitTimeNormalized;
+	if (AttackPlaybackTime + AttackEndToleranceSeconds < HitTime)
+	{
+		return;
+	}
+
+	bHeroAttackHitApplied = true;
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UTheGoldenAgeMonsterSync* MonsterSync = World->GetSubsystem<UTheGoldenAgeMonsterSync>();
+	if (!MonsterSync)
+	{
+		return;
+	}
+
+	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+	if (Forward.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector Origin = GetActorLocation() + Forward * HeroAttackReach;
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(HeroAttackOverlap), false, this);
+	QueryParams.AddIgnoredActor(this);
+
+	TArray<FOverlapResult> Overlaps;
+	if (!World->OverlapMultiByChannel(
+		Overlaps,
+		Origin,
+		FQuat::Identity,
+		ECC_Pawn,
+		FCollisionShape::MakeSphere(HeroAttackRadius),
+		QueryParams))
+	{
+		return;
+	}
+
+	TSet<uint64> DamagedIds;
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		ATheGoldenAgeMonster* Monster = Cast<ATheGoldenAgeMonster>(Overlap.GetActor());
+		if (!Monster)
+		{
+			continue;
+		}
+
+		const uint64 MonsterId = Monster->GetMonsterId();
+		if (MonsterId == 0 || Monster->IsDead() || DamagedIds.Contains(MonsterId))
+		{
+			continue;
+		}
+
+		DamagedIds.Add(MonsterId);
+		MonsterSync->RequestMonsterDamage(MonsterId, HeroAttackDamage);
+	}
+}
+
+bool ATheGoldenAgePlayerCharacter::HasCurrentAttackFinished(float PlaybackTime, float PlayLength) const
+{
+	if (PlayLength <= KINDA_SMALL_NUMBER)
+	{
+		return true;
+	}
+
+	const bool bReachedEnd = PlaybackTime >= PlayLength - AttackEndToleranceSeconds;
+	const bool bWrapped = bHasAttackSample && PlaybackTime + AttackEndToleranceSeconds < AttackSampleTime;
+	return bReachedEnd || bWrapped;
+}
+
+void ATheGoldenAgePlayerCharacter::PushHeroAttackAnimState(UAnimInstance* AnimInstance)
+{
+	UClass* AnimClass = AnimInstance->GetClass();
+	if (FBoolProperty* IsAttackingProperty = FindFProperty<FBoolProperty>(AnimClass, TEXT("bIsAttacking")))
+	{
+		IsAttackingProperty->SetPropertyValue_InContainer(AnimInstance, bIsAttacking);
+	}
+}
+
 void ATheGoldenAgePlayerCharacter::ApplyDamage(float Amount)
 {
 	if (!IsLocallyControlled() || !FMath::IsFinite(Amount) || Amount <= 0.f)
@@ -532,6 +886,10 @@ void ATheGoldenAgePlayerCharacter::BindHealthBar()
 
 void ATheGoldenAgePlayerCharacter::HandleDied()
 {
+	bIsAttacking = false;
+	bHasAttackSample = false;
+	bHeroAttackHitApplied = false;
+	AttackElapsedSeconds = 0.f;
 	LastMovementInputDirection = FVector::ZeroVector;
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{

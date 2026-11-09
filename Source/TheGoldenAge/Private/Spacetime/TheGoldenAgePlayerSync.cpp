@@ -784,7 +784,25 @@ void UTheGoldenAgePlayerSync::SendLocalTransform()
 	DbRotation.Yaw = Rotation.Yaw;
 	DbRotation.Roll = Rotation.Roll;
 
-	Conn->Reducers->UpdatePlayerTransform(Position, DbRotation);
+	bool bIsAttacking = false;
+	if (const ATheGoldenAgePlayerCharacter* PlayerCharacter = Cast<ATheGoldenAgePlayerCharacter>(Pawn))
+	{
+		bIsAttacking = PlayerCharacter->ActorHasTag(ATheGoldenAgePlayerCharacter::HeroActorTag)
+			&& PlayerCharacter->IsAttackingForReplication();
+	}
+
+	Conn->Reducers->UpdatePlayerTransform(Position, DbRotation, bIsAttacking);
+}
+
+void UTheGoldenAgePlayerSync::RequestLocalTransformPublish()
+{
+	if (!IsTickable())
+	{
+		return;
+	}
+
+	TimeSinceSync = 0.f;
+	SendLocalTransform();
 }
 
 APawn* UTheGoldenAgePlayerSync::GetLocalPawn() const
@@ -1010,6 +1028,10 @@ void UTheGoldenAgePlayerSync::ApplyPlayerRow(const FPlayerType& Row)
 	if (PlayerCharacter)
 	{
 		PlayerCharacter->ApplyServerHealth(Row.Health);
+		if (!IsLocalPlayerRow(Row) || !bLocalPossessionReady || GetLocalPawn() != Pawn)
+		{
+			PlayerCharacter->ApplyServerAttackState(Row.IsAttacking);
+		}
 	}
 
 	const bool bRespawned = bWasDead && PlayerCharacter && !PlayerCharacter->IsDead();

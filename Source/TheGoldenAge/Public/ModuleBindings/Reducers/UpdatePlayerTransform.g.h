@@ -21,16 +21,19 @@ struct THEGOLDENAGE_API FUpdatePlayerTransformArgs
     UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
     FDbRotatorType Rotation;
 
+    UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
+    bool IsAttacking = false;
+
     FUpdatePlayerTransformArgs() = default;
 
-    FUpdatePlayerTransformArgs(const FDbVector3Type& InPosition, const FDbRotatorType& InRotation)
-        : Position(InPosition), Rotation(InRotation)
+    FUpdatePlayerTransformArgs(const FDbVector3Type& InPosition, const FDbRotatorType& InRotation, const bool& InIsAttacking)
+        : Position(InPosition), Rotation(InRotation), IsAttacking(InIsAttacking)
     {}
 
 
     FORCEINLINE bool operator==(const FUpdatePlayerTransformArgs& Other) const
     {
-        return Position == Other.Position && Rotation == Other.Rotation;
+        return Position == Other.Position && Rotation == Other.Rotation && IsAttacking == Other.IsAttacking;
     }
     FORCEINLINE bool operator!=(const FUpdatePlayerTransformArgs& Other) const
     {
@@ -40,7 +43,7 @@ struct THEGOLDENAGE_API FUpdatePlayerTransformArgs
 
 namespace UE::SpacetimeDB
 {
-    UE_SPACETIMEDB_STRUCT(FUpdatePlayerTransformArgs, Position, Rotation);
+    UE_SPACETIMEDB_STRUCT(FUpdatePlayerTransformArgs, Position, Rotation, IsAttacking);
 }
 
 // Reducer class for internal dispatching
@@ -54,6 +57,8 @@ public:
     FDbVector3Type Position;
     UPROPERTY(BlueprintReadOnly, Category="SpacetimeDB")
     FDbRotatorType Rotation;
+    UPROPERTY(BlueprintReadOnly, Category="SpacetimeDB")
+    bool IsAttacking = false;
 
 };
 

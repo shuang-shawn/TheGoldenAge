@@ -51,13 +51,16 @@ struct Player
     uint8_t role;
     // Server-owned hit points. Clients render this value. 0 means dead.
     float health;
+    // True while the owning client is playing a one-shot attack (e.g. Hero Attack 01).
+    bool is_attacking;
 };
-SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at, role, health)
+SPACETIMEDB_STRUCT(Player, name, identity, position, rotation, online, updated_at, role, health, is_attacking)
 SPACETIMEDB_TABLE(Player, player, Public)
 FIELD_PrimaryKey(player, name)
 FIELD_Unique(player, identity)
 FIELD_Default(player, role, uint8_t{0})
 FIELD_Default(player, health, 100.f)
+FIELD_Default(player, is_attacking, false)
 
 // Private. Which live connection may move which username.
 struct PlayerSession
@@ -260,7 +263,8 @@ void SetPlayerOfflineByConnection(ReducerContext& ctx)
 bool UpdateOnlinePlayerTransform(
     ReducerContext& ctx,
     const DbVector3& Position,
-    const DbRotator& Rotation)
+    const DbRotator& Rotation,
+    bool IsAttacking)
 {
     if (!ctx.connection_id)
     {
@@ -287,6 +291,7 @@ bool UpdateOnlinePlayerTransform(
 
     PlayerRow->position = Position;
     PlayerRow->rotation = Rotation;
+    PlayerRow->is_attacking = IsAttacking;
     PlayerRow->updated_at = ctx.timestamp;
     ctx.db[player_name].update(*PlayerRow);
     return true;
@@ -738,7 +743,8 @@ SPACETIMEDB_REDUCER(login, ReducerContext ctx, std::string name, std::string pas
         true,
         ctx.timestamp,
         role,
-        kPlayerMaxHealth
+        kPlayerMaxHealth,
+        false
     });
     return Ok();
 }
@@ -775,6 +781,10 @@ SPACETIMEDB_REDUCER(damage_player, ReducerContext ctx, float amount)
 
     const float NextHealth = PlayerRow->health - amount;
     PlayerRow->health = NextHealth > 0.f ? NextHealth : 0.f;
+    if (PlayerRow->health <= 0.f)
+    {
+        PlayerRow->is_attacking = false;
+    }
     PlayerRow->updated_at = ctx.timestamp;
     ctx.db[player_name].update(*PlayerRow);
     if (PlayerRow->health <= 0.f)
@@ -878,15 +888,16 @@ SPACETIMEDB_REDUCER(respawn_player, ReducerContext ctx, PlayerRespawnTimer timer
     PlayerRow->health = kPlayerMaxHealth;
     PlayerRow->position = DbVector3{0.f, 0.f, 0.f};
     PlayerRow->rotation = DbRotator{0.f, 0.f, 0.f};
+    PlayerRow->is_attacking = false;
     PlayerRow->updated_at = ctx.timestamp;
     ctx.db[player_name].update(*PlayerRow);
     return Ok();
 }
 
 // The caller is resolved only through the session for ctx.connection_id.
-SPACETIMEDB_REDUCER(update_player_transform, ReducerContext ctx, DbVector3 position, DbRotator rotation)
+SPACETIMEDB_REDUCER(update_player_transform, ReducerContext ctx, DbVector3 position, DbRotator rotation, bool is_attacking)
 {
-    if (!UpdateOnlinePlayerTransform(ctx, position, rotation))
+    if (!UpdateOnlinePlayerTransform(ctx, position, rotation, is_attacking))
     {
         return Err("Not logged in");
     }

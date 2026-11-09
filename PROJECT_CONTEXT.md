@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-09 (monster health + respawn on server; agents do not compile; the user runs Live Coding manually after each task)  
+**Last verified against codebase:** 2026-11-09 (player `is_attacking` replication; agents do not compile; the user runs Live Coding manually after each task)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -71,7 +71,7 @@ Cursor always applies `.cursor/rules/project-context.mdc`: read this file before
 | **Core gameplay experience** | **[Design]** Mouse combat targeting, abilities — **planned**. **[Impl]** Top-down follow camera, camera-relative WASD movement, and movement-facing on `BP_Hero` and `BP_Explorer`. Battle in-place locomotion plays from `ABP_Hero` and `ABP_Explorer`. |
 | **Target platforms** | **Desktop** per `Config/DefaultEngine.ini` (`HardwareTargetingSettings`). Renderer configs also reference mobile/Linux/Mac shader paths (template defaults). **Shipping targets not formally defined.** |
 | **Unreal Engine version** | **5.8** (`EngineAssociation` in `TheGoldenAge.uproject`). Editor log indicates **5.8.3** install at `K:/UE_5.8` (environment-specific; not required for all developers). |
-| **Development stage** | **Early prototype** — player movement, battle locomotion, and server-owned player health, death, and respawn are implemented; combat/targeting not started. |
+| **Development stage** | **Early prototype** — player movement, battle locomotion, server-owned player/monster health, Hero melee damage to server monsters, and respawn are implemented; full targeting/skills not started. |
 | **Primary languages** | C++ (gameplay base classes), Blueprints (`BP_Hero`, `BP_Explorer`, input assets), C# (UBT), ini configuration. |
 
 ### Main technologies and dependencies
@@ -156,7 +156,8 @@ Architecture should support (without implementing all systems upfront):
 |-------|--------|-----------|
 | WASD | Movement | 8-directional movement |
 | Mouse cursor | Targeting position | World-space ground target for combat/abilities |
-| Future mouse buttons | Attack / skills | Fire actions using cursor target |
+| Left mouse | `IA_Attack` (Hero only) | Plays `Anim_Attack01_TinyHero` once; at a configurable normalized hit time, overlaps server monsters and calls `damage_monster` (default 50) |
+| Future mouse buttons | Skills | Fire actions using cursor target |
 
 **Separation of responsibilities [Design]:**
 
@@ -166,7 +167,7 @@ Architecture should support (without implementing all systems upfront):
 
 Movement input must **not** auto-rotate toward the mouse. Modules (cursor targeting, rotation, movement, skill execution) must evolve independently.
 
-**[Impl]** Assets: `Content/_Main/Input/IA_Move`, `IMC_Default`. WASD mappings (with axis modifiers) are authored on `IMC_Default`. `ATheGoldenAgePlayerController` only adds that context at runtime. `ATheGoldenAgePlayerCharacter` binds `IA_Move`. **No** mouse targeting actions yet.
+**[Impl]** Assets: `Content/_Main/Input/IA_Move`, `IA_Attack`, `IA_Look`, `IA_CameraRotate`, `IMC_Default`. WASD and mouse bindings live on `IMC_Default` (including **Left Mouse Button** → `IA_Attack`). `ATheGoldenAgePlayerController` adds that context and exposes cursor → ground projection for combat. `ATheGoldenAgePlayerCharacter` binds move, look, camera rotate, and attack; Hero attack uses the controller ground point to face the cursor. **No** continuous cursor tracking or skill targeting yet.
 
 **Recommended content paths (when implementing):** e.g. `Content/_Main/Input/` with naming `IA_*`, `IMC_*` — adopt consistently when first assets are created.
 
@@ -206,7 +207,7 @@ Follow Epic C++ conventions, reflection, and memory rules; modular, maintainable
 | **Player Controller** | Enhanced Input; mapping context; future cursor → ground target | **Partial** — input only |
 | **Player Character** | Movement, movement-facing; `RequestFaceDirection` hook for future combat | **Partial** — locomotion only |
 | **Camera system** | Top-down follow, smooth tracking | **Impl** — spring arm on character |
-| **Input system** | `IA_*` / `IMC_*` assets, mappings | **Impl** — move only |
+| **Input system** | `IA_*` / `IMC_*` assets, mappings | **Partial** — move, look, camera orbit, Hero attack |
 | **Combat / abilities** | Targeting consumption, per-skill rules | **Planned** |
 | **Gameplay components** | Reusable behaviour where appropriate | **Partial** — `UTheGoldenAgeHealthComponent` on the player |
 
@@ -222,13 +223,13 @@ The project has a **minimal top-down player stack** in C++. `BP_Hero` and `BP_Ex
 TheGoldenAge.uproject
     └── Module: TheGoldenAge
             ├── ATheGoldenAgeGameMode → no default pawn; UTheGoldenAgePlayerSync possesses after login
-            ├── ATheGoldenAgePlayerController → IMC_Default + IA_Move
+            ├── ATheGoldenAgePlayerController → IMC_Default
             └── ATheGoldenAgePlayerCharacter (BP parent) → movement, camera, battle anims
                     ├── BP_Hero (role 0)
                     └── BP_Explorer (role 1)
 Content/_Main/
     ├── Lvl_Main
-    ├── Input/ (IA_Move, IMC_Default)
+    ├── Input/ (IA_Move, IA_Attack, IMC_Default)
     └── Blueprint/BP_ChestMonster (Trap), BP_GhostFish (Ghost), BP_Swarm08
 Content/MonsterForSurvivalGame/
     └── Mesh/Polyart + Animation/Polyart (ChestMonster and Swarm08 source assets)
@@ -249,7 +250,7 @@ Config/
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Login, play menu, player health bar | **Partial** — login widgets already exist. Each player has a screen-space health bar under the feet. |
-| AI / NPCs | Server straight-line chase; clients render monster rows | **Partial** — A scheduled `monster_tick` reducer runs at 20 Hz. Monsters have server `health` (100), a client health bar, and `damage_monster` / `respawn_monster` (1 s at `spawn_position`). Dead monsters do not tick AI. It finds the closest online player inside a per-kind detection range and writes position, yaw, `is_attacking`, and `loop_attack`. The Chest Monster turns in place and attacks inside 500 cm. The Ghost Fish moves in a straight line on XY at 250 cm/s, stops at 120 cm, and attacks inside 120 cm. Z stays at the spawn height. There is no NavMesh and no wall avoidance. Every client spawns the actor and interpolates between row samples about 100 ms behind the latest one. A sample gap of 500 cm or more snaps. `loop_attack` false lets the current attack cycle finish locally, then idle. The local Hero sees monsters tagged `Ghost`; the local Explorer sees monsters tagged `Trap`. No damage. A placed monster with no server id does not detect players. |
+| AI / NPCs | Server straight-line chase; clients render monster rows | **Partial** — A scheduled `monster_tick` reducer runs at 20 Hz. Monsters have server `health` (100), a client health bar, and `damage_monster` / `respawn_monster` (1 s at `spawn_position`). Dead monsters do not tick AI. It finds the closest online player inside a per-kind detection range and writes position, yaw, `is_attacking`, and `loop_attack`. The Chest Monster turns in place and attacks inside 500 cm. The Ghost Fish moves in a straight line on XY at 250 cm/s, stops at 120 cm, and attacks inside 120 cm. Z stays at the spawn height. There is no NavMesh and no wall avoidance. Every client spawns the actor and interpolates between row samples about 100 ms behind the latest one. A sample gap of 500 cm or more snaps. `loop_attack` false lets the current attack cycle finish locally, then idle. The local Hero sees monsters tagged `Ghost`; the local Explorer sees monsters tagged `Trap`. Hero melee applies client-requested `damage_monster` on overlapping server monsters (any kind). A placed monster with no server id does not detect players. |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
 | Multiplayer / replication | SpacetimeDB player and monster rows. No Unreal replication. | **Partial** — players and the two seeded monsters are server rows. Unreal net driver is still not configured. |
@@ -262,8 +263,8 @@ Config/
 | Class | Role |
 |-------|------|
 | `ATheGoldenAgeGameMode` | No default pawn. `RestartPlayer` does nothing; `UTheGoldenAgePlayerSync` possesses `BP_Hero` or `BP_Explorer` after login. |
-| `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target. Console `DamageLocalPlayer <amount>` calls `damage_player` for the possessed player. Console `DamageMonster <id> <amount>` calls `damage_monster` for a server monster row. |
-| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, and the locomotion values copied onto `ABP_Hero` / `ABP_Explorer`. Also copies `bIsDead`. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. Owns `UTheGoldenAgeHealthComponent` and a screen-space health bar. The bar and the die clip follow `player.health` from the server. At 0, movement stops and the die clip plays once. One second later the server restores 100 health and the unset transform. The pawn teleports to the level spawn anchor and walks again. |
+| `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target. Projects the mouse cursor to the ground plane at the pawn's Z for combat targeting (`GetMouseCursorGroundLocationForPawn`). Console `DamageLocalPlayer <amount>` calls `damage_player` for the possessed player. Console `DamageMonster <id> <amount>` calls `damage_monster` for a server monster row. |
+| `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, and the locomotion values copied onto `ABP_Hero` / `ABP_Explorer`. Also copies `bIsDead`. Local **Hero** pawns bind `IA_Attack` (`Started`): set `bIsAttacking` on `ABP_Hero`, play `Anim_Attack01_TinyHero` once (no loop), then clear when the attack sequence finishes. At `HeroAttackHitTimeNormalized` in that clip, runs one sphere overlap forward (`HeroAttackReach`, `HeroAttackRadius`) and calls `UTheGoldenAgeMonsterSync::RequestMonsterDamage` for each overlapping server monster (`HeroAttackDamage`, default 50). Tunable on `BP_Hero` under **Combat**. Explorer ignores attack input. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. Owns `UTheGoldenAgeHealthComponent` and a screen-space health bar. The bar and the die clip follow `player.health` from the server. At 0, movement stops and the die clip plays once. One second later the server restores 100 health and the unset transform. The pawn teleports to the level spawn anchor and walks again. |
 | `ATheGoldenAgeMonster` | Abstract. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. A server id disables movement and stores samples from `ApplyServerState`. `Tick` interpolates position and yaw toward the sample that is about 100 ms old. One sample, or a gap of 500 cm or more, snaps. `MonsterId` 0 has no samples and does not detect players. Owns `UTheGoldenAgeHealthComponent` and the same screen-space health bar as players. The bar and `bIsDead` follow `monster.health` from the server. At 0, attack presentation stops. One second later the server restores 100 health at `spawn_position` / `spawn_rotation`. |
 | `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Copies `bIsAttacking` and `bLoopAttack` onto `ABP_ChestMonster`. `loop_attack` true starts the looping attack. `loop_attack` false plays out the current sequence whose name contains `Attack`, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. The server, not this class, turns the Chest Monster. |
 | `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. The only Ghost-tagged monster so far. Same attack-cycle presentation as the Chest Monster, copied onto `ABP_GhostFish`. It does not pathfind. The server moves and turns it. |
@@ -275,7 +276,7 @@ Config/
 
 - **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Actor tags `Player` and `Hero`. Mesh `SK_TinyHeroPolyart` uses `ABP_Hero`. Sword and shield stay on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
 - **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Actor tags `Player` and `Explorer`. Mesh `SK_DogPolyart` uses `ABP_Explorer`. Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
-- **`ABP_Hero`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `TinyHero_Skeleton`. `BattleMoveDirection` `0` plays looping idle battle. Any other value plays looping `Anim_MoveFWD_Battle_InPlace_TinyHero`. Blend time is 0.1 s. `LocomotionPlayRate` drives that forward player. `bIsDead` true selects `Anim_Die01_TinyHero` (Blend Poses by Bool uses the first pose for true). Loop is off and the blend time is 0. The character copies all three values each tick.
+- **`ABP_Hero`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `TinyHero_Skeleton`. `BattleMoveDirection` `0` plays looping idle battle. Any other value plays looping `Anim_MoveFWD_Battle_InPlace_TinyHero`. Blend time is 0.1 s. `LocomotionPlayRate` drives that forward player. `bIsAttacking` true blends in `Anim_Attack01_TinyHero` (loop off) over the locomotion graph; `bIsDead` still wins first and selects `Anim_Die01_TinyHero` on the true pose. The character copies locomotion values and `bIsAttacking` each tick.
 - **`ABP_Explorer`** — `Content/_Main/Blueprint/`. Same locomotion graph on `AnimalHero_Skeleton`. Idle is `Anim_Idle_Battle_AnimalHero`. Every move direction plays `Anim_SprintForwardBattle_IP_AnimalHero` (the pack has no back/left/right in-place clips). `LocomotionPlayRate` drives that sprint player. `bIsDead` true selects `Anim_DieA_AnimalHero` on the true pose of Blend Poses by Bool. Loop is off and the blend time is 0. The character copies `bIsDead` each tick.
 - **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Actor tags `Trap` and `Monster` are on the Blueprint defaults, so a spawned instance keeps them. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). Detection and attack range live on the **`monster` row** (seeded 500 / 500 cm). Turn rate stays a kind constant (480 deg/s). It is not placed in `Lvl_Main`. The server seeds it at (-30, 420, 70) and the client spawns it from the `monster` table. Old Blueprint `DetectionRange` overrides are unused.
 - **`BP_GhostFish`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgeGhostFish`. Actor tags `Ghost` and `Monster` are on the Blueprint defaults. Mesh is polyart `Swarm08_SK` with `ABP_GhostFish`. Row defaults: detection 250, attack 120 cm; chase stop 120 and speed 250 remain kind constants. It is not placed in `Lvl_Main`. The server seeds it at (-510, 440, 70) and the client spawns it. A hero sees it. An explorer does not. `ATheGoldenAgeMonsterAIController` was removed. `DefaultEngine.ini` redirects that class to `AIController`. Old chase properties on the Blueprint are unused.
@@ -283,7 +284,7 @@ Config/
 - **`ABP_GhostFish`** — Same idle/attack pattern as `ABP_ChestMonster` on `Swarm08_SK_Skeleton`. Bool `bIsDead` must blend in `Swarm08_Die_Anim` on the **true** pose before the alive graph, same rules as `ABP_ChestMonster`.
 - **`BP_Swarm08`** — `Content/_Main/Blueprint/`. Same parent and capsule as `BP_ChestMonster`. Mesh is polyart `Swarm08_SK` with `ABP_Swarm08`. One instance is in `Lvl_Main` at (-30, 920, 70). It has no server id, so it does not detect or attack. The seeded Chest Monster is the server-driven one.
 - **`ABP_Swarm08`** — `Content/_Main/Blueprint/`. Same graph as `ABP_ChestMonster` on polyart `Swarm08_SK_Skeleton`: `bIsAttacking` selects `Swarm08_Attack_Anim`, otherwise looping `Swarm08_Idle_Anim`. Attack Loop Animation is `bLoopAttack`. Only idle and attack are wired. The Anim Blueprint preview mesh is unset, so the animation editor viewport does not show the creature; the character Blueprint does.
-- **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IMC_Default`.
+- **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IA_Attack` (Boolean), `IA_Look`, `IA_CameraRotate`, `IMC_Default` (WASD, LMB attack, RMB camera, Mouse2D look).
 - **`Lvl_Main`** — greybox play map.
 - **`Content/RPGHeroSquad/`** — hero assets (commit via LFS when ready).
 - **Must use LFS** when adding: all `.uasset` / `.umap` per `.gitattributes`.
@@ -301,7 +302,7 @@ Config/
 
 ### Backend / external integrations
 
-- **SpacetimeDB** module in `spacetimedb/` (`maincloud`, database identity in `spacetimedb/spacetime.json`). Public `player` rows keep username, stable identity, transform, online flag, `role` (`0` Hero, `1` Explorer), and `health` (default 100). `damage_player` subtracts health from the logged-in caller and clamps it at 0. At 0 it inserts a private `player_respawn_timer` row for 1 second later. `respawn_player` then sets health to 100 and the transform to `(0, 0, 0)` with a zero rotator. That unset transform is the default spawn: every client replaces it with the placed `Lvl_Main` pawn (the spawn anchor) and then the local client publishes that world position. A login while health is already 0 schedules the same timer. Transform updates are ignored while health is 0. Clients only render health. `login` creates the row only for a new username and stores the chosen role; an existing account keeps its role. `UTheGoldenAgePlayerSync` subscribes, spawns `BP_Hero` or `BP_Explorer`, and possesses the local pawn. Public `monster` rows keep `kind` (`0` Chest Monster, `1` Ghost Fish), spawn transform, live transform, `is_attacking`, `loop_attack`, `health` (default 100), `detection_range`, and `attack_range` (default `0` = use kind defaults in `monster_tick`). `damage_monster(target_id, amount)` requires login, subtracts health, clears attack flags at 0, and schedules private `monster_respawn_timer` for 1 s later. `respawn_monster` restores full health at `spawn_position` / `spawn_rotation`. `monster_tick` skips rows with `health <= 0`. There is no owner. Private `monster_tick_timer` holds one `ScheduleAt` interval of 50 ms and calls `monster_tick`. That reducer skips movement when nobody is online, and otherwise chases the closest online player in a straight line. It writes a row only when position, yaw, or the attack flags change. Chest Monster: detection and attack 500 cm, speed 0, turn 480 deg/s. Ghost Fish: detection 250, attack and stop 120, speed 250, turn 480. `loop_attack` is true only while the target is inside that attack range. `seed_monsters` and `ensure_monster_tick` insert their rows only when the matching table is empty. `init` calls both, but `init` does not re-run on an existing database. Removing `owner` could not be migrated, so the 2026-11-09 publish used `--delete-data=on-conflict` and wiped player accounts. `init` then seeded both monsters and the tick. A client built before this schema cannot connect until it is regenerated and recompiled.
+- **SpacetimeDB** module in `spacetimedb/` (`maincloud`, database identity in `spacetimedb/spacetime.json`). Public `player` rows keep username, stable identity, transform, online flag, `role` (`0` Hero, `1` Explorer), `health` (default 100), and `is_attacking` (default false, set by `update_player_transform`). `damage_player` subtracts health from the logged-in caller and clamps it at 0. At 0 it inserts a private `player_respawn_timer` row for 1 second later. `respawn_player` then sets health to 100 and the transform to `(0, 0, 0)` with a zero rotator. That unset transform is the default spawn: every client replaces it with the placed `Lvl_Main` pawn (the spawn anchor) and then the local client publishes that world position. A login while health is already 0 schedules the same timer. Transform updates are ignored while health is 0. Clients only render health. `login` creates the row only for a new username and stores the chosen role; an existing account keeps its role. `UTheGoldenAgePlayerSync` subscribes, spawns `BP_Hero` or `BP_Explorer`, and possesses the local pawn. Public `monster` rows keep `kind` (`0` Chest Monster, `1` Ghost Fish), spawn transform, live transform, `is_attacking`, `loop_attack`, `health` (default 100), `detection_range`, and `attack_range` (default `0` = use kind defaults in `monster_tick`). `damage_monster(target_id, amount)` requires login, subtracts health, clears attack flags at 0, and schedules private `monster_respawn_timer` for 1 s later. `respawn_monster` restores full health at `spawn_position` / `spawn_rotation`. `monster_tick` skips rows with `health <= 0`. There is no owner. Private `monster_tick_timer` holds one `ScheduleAt` interval of 50 ms and calls `monster_tick`. That reducer skips movement when nobody is online, and otherwise chases the closest online player in a straight line. It writes a row only when position, yaw, or the attack flags change. Chest Monster: detection and attack 500 cm, speed 0, turn 480 deg/s. Ghost Fish: detection 250, attack and stop 120, speed 250, turn 480. `loop_attack` is true only while the target is inside that attack range. `seed_monsters` and `ensure_monster_tick` insert their rows only when the matching table is empty. `init` calls both, but `init` does not re-run on an existing database. Removing `owner` could not be migrated, so the 2026-11-09 publish used `--delete-data=on-conflict` and wiped player accounts. `init` then seeded both monsters and the tick. A client built before this schema cannot connect until it is regenerated and recompiled.
 - Local **unreal-mcp** server for editor automation via MCP (developer machine setup; optional).
 - Android File Server plugin settings exist in `DefaultEngine.ini` (editor/deploy aid); treat credentials in ini as **environment secrets** — do not copy tokens into this document.
 
@@ -398,8 +399,9 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 | Asset / setting | Path / behaviour |
 |-----------------|------------------|
 | `IA_Move` | `/Game/_Main/Input/IA_Move` — `Axis2D` |
+| `IA_Attack` | `/Game/_Main/Input/IA_Attack` — `Boolean`; `IMC_Default` maps **Left Mouse Button** |
 | `IMC_Default` | `/Game/_Main/Input/IMC_Default` — WASD authored on the asset (`IA_Move`: W swizzle YXZ, S swizzle YXZ then negate, A negate, D none) |
-| Bind | `IA_Move` → `ATheGoldenAgePlayerCharacter::Move` |
+| Bind | `IA_Move` → `Move`; `IA_Attack` → `Attack` (`Started`, Hero only); `IA_Look` / `IA_CameraRotate` → camera |
 | Context | Added in `ATheGoldenAgePlayerController` on possess |
 
 **Planned:** mouse ground targeting on Player Controller; combat actions — not implemented.
@@ -410,7 +412,7 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 
 **Locomotion logic:** each mesh uses its Anim Blueprint (`AnimationBlueprint` mode). C++ does not swap sequences. Idle when speed is below `MinMovingSpeed` (default 10). The local pawn uses `CharacterMovement` velocity. Other online pawns are transform-snapped by `UTheGoldenAgePlayerSync` with movement simulation disabled, so their actor tick stays on and locomotion uses a velocity derived from position deltas (`RemoteIdleGraceSeconds` holds the last move clip between snaps; jumps over `RemoteTeleportDistance` do not count as steps). Direction and play rate use the same rules for the local and remote pawn. Camera and movement-facing still run only on the locally controlled pawn.
 
-Each tick the character writes `BattleMoveDirection`, `LocomotionPlayRate`, and `bIsDead` on the Anim Instance. It also calls `SetPlayRate` on every sequence player: a clip whose name contains `Idle` or `Die` stays at rate 1, and the others use the speed scale. The Anim Graph pins are the ones that actually play. When `bIsDead` is true, `ABP_Hero` plays `Anim_Die01_TinyHero` once and `ABP_Explorer` plays `Anim_DieA_AnimalHero` once. The sequence player does not loop, so the last frame holds. Movement stops on that pawn. Every client applies `player.health`, so a death is visible on every client that has the row. One second later health is 100 again, `bIsDead` clears, and the pawn is teleported to the level spawn anchor with walking re-enabled on the owning client.
+Each tick the character writes `BattleMoveDirection`, `LocomotionPlayRate`, and `bIsDead` on the Anim Instance. Heroes drive `bIsAttacking` until `Anim_Attack01_TinyHero` finishes. The local Hero starts attacks from input; other clients start the same presentation when `player.is_attacking` goes true on the row. The local client publishes `is_attacking` with `update_player_transform` (10 Hz and immediately on attack start/end). It also calls `SetPlayRate` on every sequence player: a clip whose name contains `Idle`, `Die`, or `Attack` stays at rate 1, and the others use the speed scale. The Anim Graph pins are the ones that actually play. When `bIsDead` is true, `ABP_Hero` plays `Anim_Die01_TinyHero` once and `ABP_Explorer` plays `Anim_DieA_AnimalHero` once. The sequence player does not loop, so the last frame holds. Movement stops on that pawn. Every client applies `player.health`, so a death is visible on every client that has the row. One second later health is 100 again, `bIsDead` clears, and the pawn is teleported to the level spawn anchor with walking re-enabled on the owning client.
 
 | `BattleMoveDirection` | `ABP_Hero` clip | `ABP_Explorer` clip |
 |-----------------------|-----------------|---------------------|
@@ -539,7 +541,8 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 
 - [ ] Player Controller — cursor → ground-plane targeting API
 - [ ] Combat rotation via `RequestFaceDirection` / ability system
-- [ ] Attack/skill `InputAction`s and mouse bindings
+- [x] Hero attack `IA_Attack` + left mouse (2026-11-09)
+- [ ] Additional skill `InputAction`s and mouse bindings
 - [x] Chest Monster animation — `ABP_ChestMonster` (idle / Attack 01). Hero and Explorer locomotion use `ABP_Hero` and `ABP_Explorer`.
 
 ### Partially implemented
@@ -547,7 +550,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | Item | Done | Outstanding |
 |------|------|-------------|
 | GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
-| Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
+| Enhanced Input stack | `IA_Move`, `IA_Attack`, `IMC_Default`, C++ bindings | Ground targeting; Explorer attack if needed |
 | Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
 | Monsters | Hero sees `Ghost`, Explorer sees `Trap`. Server `health`, health bar, 1 s respawn at spawn. Test with `DamageMonster`. Chase at 20 Hz when alive | Monsters do not damage players yet. Die AnimGraph blend must be wired on `ABP_ChestMonster` / `ABP_GhostFish`. `BP_Swarm08` has no server id. 2026-11-09 monster-health publish wiped accounts again. |
 | Player health | `player.health` on the server, bar under the feet, die clip once in `ABP_Hero` / `ABP_Explorer`. One second after 0, full health at the level spawn anchor | No combat source of damage. The caller can still choose the amount through `damage_player`. Test with `DamageLocalPlayer`. |
@@ -622,6 +625,60 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Replicate Hero attack animation to other clients
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added `player.is_attacking`. `update_player_transform` now takes `is_attacking`. The local client sends it while Attack 01 plays (10 Hz plus immediate publish on start/end). Remote Hero pawns call `ApplyServerAttackState` on row updates and run the same `BeginHeroAttackPresentation` / end detection as the owner. Hit damage still runs only on the locally controlled pawn. |
+| **Files / systems** | `spacetimedb/src/lib.cpp`; generated `FPlayerType.IsAttacking`, `UpdatePlayerTransform`; `UTheGoldenAgePlayerSync`, `ATheGoldenAgePlayerCharacter`. |
+| **Reason** | Other players only saw locomotion; attack was local-only. |
+| **Follow-up** | Published to `maincloud` (added `player.is_attacking`; clients disconnect). Live Coding required. Two accounts in PIE or two builds: client B should see client A's Attack 01 when A left-clicks. |
+
+### 2026-11-09 — Hero melee damages all server monsters
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Hero attack hit overlap no longer filters by `Ghost`. Any overlapping `ATheGoldenAgeMonster` with a non-zero server `MonsterId` receives `damage_monster` (Chest and Ghost Fish alike). |
+| **Files / systems** | `TheGoldenAgePlayerCharacter.cpp`. |
+| **Reason** | Hero attacks should damage every monster kind, not only Ghost-tagged ones. |
+| **Follow-up** | Live Coding. Hero can damage chest monsters in overlap range even when hidden by viewer rules; health still updates on the server for all clients. |
+
+### 2026-11-09 — Hero melee hit detection and monster damage
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Local Hero attacks run one pawn-channel sphere overlap at `HeroAttackHitTimeNormalized` during Attack 01. Overlapping server monsters (`MonsterId` > 0) receive `damage_monster` for `HeroAttackDamage` (default 50). Reach, radius, hit time, and damage are `EditDefaultsOnly` on `ATheGoldenAgePlayerCharacter` for `BP_Hero`. |
+| **Files / systems** | `TheGoldenAgePlayerCharacter.h/.cpp`; existing `UTheGoldenAgeMonsterSync::RequestMonsterDamage` / `damage_monster`. |
+| **Reason** | First player-authored damage to server monsters. |
+| **Follow-up** | Live Coding. Stand in range of a server monster, left-click toward it; bar should drop by 50 (tune on `BP_Hero` **Combat**). Console `DamageMonster` still works for tests. |
+
+### 2026-11-09 — Hero attack faces mouse cursor
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `ATheGoldenAgePlayerController` projects the mouse onto the horizontal plane through the pawn's Z (`GetMouseCursorGroundLocationForPawn`). `ATheGoldenAgePlayerCharacter::Attack` asks the controller for that point and calls `RequestFaceDirection` before starting Attack 01. |
+| **Files / systems** | `TheGoldenAgePlayerController.h/.cpp`; `TheGoldenAgePlayerCharacter.cpp`. |
+| **Reason** | Combat design: on attack, turn toward the cursor on the ground plane. |
+| **Follow-up** | Live Coding. Left-click with the cursor to the side or behind the Hero; the mesh should snap to face that ground direction for the swing. Movement-facing is suppressed for the attack duration so aim is not overwritten while WASD is held. |
+
+### 2026-11-09 — Hero attack re-trigger fix
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | After the first swing, `bIsAttacking` could stay true when the Anim Graph sequence player was not readable from C++, so `Attack()` rejected further clicks. End-of-attack now also uses `HeroAttackSequence` play length plus an elapsed timer; each new attack resets the sequence player time and `ABP_Hero` attack player uses **Reset Child on Activate**. |
+| **Files / systems** | `TheGoldenAgePlayerCharacter.h/.cpp`; `ABP_Hero`. |
+| **Reason** | Left click only worked once. |
+| **Follow-up** | Live Coding. Chain several left-clicks; each should replay Attack 01 after the prior clip finishes. |
+
+### 2026-11-09 — Hero left-click melee presentation
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Added `IA_Attack` (Boolean) with **Left Mouse Button** on `IMC_Default`. `ATheGoldenAgePlayerCharacter::Attack` runs on `Started` for locally controlled **Hero** pawns only, sets `bIsAttacking`, and clears it after `Anim_Attack01_TinyHero` finishes (same end detection as monsters). `ABP_Hero` blends Attack 01 over locomotion when `bIsAttacking` is true; loop is off. No damage or cursor-facing yet. |
+| **Files / systems** | `TheGoldenAgePlayerCharacter.h/.cpp`; `Content/_Main/Input/IA_Attack`, `IMC_Default`; `ABP_Hero`. |
+| **Reason** | First player combat input: one-shot attack animation on the Hero. |
+| **Follow-up** | Live Coding. Log in as Hero, left-click: attack plays once; clicks during the swing are ignored until the clip ends. Explorer should not react. Combine with future cursor targeting for attack facing. |
 
 ### 2026-11-09 — Per-monster detection and attack range columns
 

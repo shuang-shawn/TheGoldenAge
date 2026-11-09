@@ -38,9 +38,12 @@ struct THEGOLDENAGE_API FPlayerType
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
     float Health = 0.0f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
+    bool IsAttacking = false;
+
     FORCEINLINE bool operator==(const FPlayerType& Other) const
     {
-        return Name == Other.Name && Identity == Other.Identity && Position == Other.Position && Rotation == Other.Rotation && Online == Other.Online && UpdatedAt == Other.UpdatedAt && Role == Other.Role && Health == Other.Health;
+        return Name == Other.Name && Identity == Other.Identity && Position == Other.Position && Rotation == Other.Rotation && Online == Other.Online && UpdatedAt == Other.UpdatedAt && Role == Other.Role && Health == Other.Health && IsAttacking == Other.IsAttacking;
     }
 
     FORCEINLINE bool operator!=(const FPlayerType& Other) const
@@ -65,6 +68,7 @@ FORCEINLINE uint32 GetTypeHash(const FPlayerType& PlayerType)
     Hash = HashCombine(Hash, GetTypeHash(PlayerType.UpdatedAt));
     Hash = HashCombine(Hash, GetTypeHash(PlayerType.Role));
     Hash = HashCombine(Hash, GetTypeHash(PlayerType.Health));
+    Hash = HashCombine(Hash, GetTypeHash(PlayerType.IsAttacking));
     return Hash;
 }
 
@@ -72,5 +76,5 @@ namespace UE::SpacetimeDB
 {
     UE_SPACETIMEDB_ENABLE_TARRAY(FPlayerType);
 
-    UE_SPACETIMEDB_STRUCT(FPlayerType, Name, Identity, Position, Rotation, Online, UpdatedAt, Role, Health);
+    UE_SPACETIMEDB_STRUCT(FPlayerType, Name, Identity, Position, Rotation, Online, UpdatedAt, Role, Health, IsAttacking);
 }

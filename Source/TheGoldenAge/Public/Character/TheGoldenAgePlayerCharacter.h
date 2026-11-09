@@ -7,6 +7,7 @@
 #include "GameFramework/Character.h"
 #include "TheGoldenAgePlayerCharacter.generated.h"
 
+class UAnimSequenceBase;
 class UCameraComponent;
 class UInputAction;
 class USpringArmComponent;
@@ -59,7 +60,10 @@ public:
 	void OnCameraRotateStarted();
 	void OnCameraRotateCompleted();
 
-	/** Future combat systems may request rotation toward a world direction without coupling to cursor polling. */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void Attack(const struct FInputActionValue& Value);
+
+	/** Snaps the character to a world-horizontal facing direction (e.g. combat aim from the Player Controller). */
 	UFUNCTION(BlueprintCallable, Category = "Movement")
 	void RequestFaceDirection(const FVector& WorldDirection);
 
@@ -69,6 +73,9 @@ public:
 
 	void ApplyServerHealth(float NewHealth);
 
+	/** Remote pawns: begin Attack 01 when the player row reports is_attacking. */
+	void ApplyServerAttackState(bool bServerIsAttacking);
+
 	/** Walking again after a server respawn. Call after the pawn is already at the spawn point. */
 	void HandleRespawned();
 
@@ -77,6 +84,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Health")
 	bool IsDead() const;
+
+	/** True while the Hero attack clip is playing (replicated via player.is_attacking). */
+	UFUNCTION(BlueprintPure, Category = "Combat")
+	bool IsAttackingForReplication() const { return bIsAttacking; }
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
@@ -121,6 +132,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> CameraRotateAction;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> AttackAction;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Movement")
 	float MinMovingSpeed = 10.f;
 
@@ -137,6 +151,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "0.25", ClampMax = "3.0"))
 	float AnimPlayRateMax = 1.4f;
 
+	/** Clip used to time Hero attack end detection when the Anim Graph sequence player is unavailable. */
+	UPROPERTY(EditDefaultsOnly, Category = "Animation")
+	TObjectPtr<UAnimSequenceBase> HeroAttackSequence;
+
+	/** Health removed from each overlapped server monster during one Hero attack. Tune on BP_Hero. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0"))
+	float HeroAttackDamage = 50.f;
+
+	/** Forward reach of the attack overlap from the capsule center (cm). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0"))
+	float HeroAttackReach = 140.f;
+
+	/** Radius of the attack overlap sphere (cm). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0"))
+	float HeroAttackRadius = 90.f;
+
+	/** Normalized time in the attack clip when hit detection runs once (0–1). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HeroAttackHitTimeNormalized = 0.35f;
+
 	/** How long a remote pawn keeps its last move clip after position updates stop. */
 	UPROPERTY(EditDefaultsOnly, Category = "Animation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float RemoteIdleGraceSeconds = 0.15f;
@@ -152,6 +186,12 @@ protected:
 	void UpdateMovementFacing(float DeltaSeconds);
 	void UpdateRemotePresentationVelocity(float DeltaSeconds);
 	void UpdateBattleLocomotionAnimation();
+	void BeginHeroAttackPresentation();
+	void NotifyLocalTransformPublish();
+	void UpdateHeroAttackAnimation(float DeltaSeconds);
+	bool HasCurrentAttackFinished(float PlaybackTime, float PlayLength) const;
+	void TryHeroAttackHit(float AttackPlaybackTime, float AttackPlayLength);
+	void PushHeroAttackAnimState(UAnimInstance* AnimInstance);
 	void BindHealthBar();
 
 	UFUNCTION()
@@ -174,4 +214,11 @@ protected:
 	bool bRotatingCamera = false;
 	float SavedMouseX = 0.f;
 	float SavedMouseY = 0.f;
+
+	/** Drives ABP_Hero's attack blend while the local Hero plays Attack 01 once. */
+	bool bIsAttacking = false;
+	float AttackElapsedSeconds = 0.f;
+	float AttackSampleTime = 0.f;
+	bool bHasAttackSample = false;
+	bool bHeroAttackHitApplied = false;
 };

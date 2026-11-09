@@ -835,17 +835,18 @@ public:
     bool InvokeSeedMonsters(const FReducerEventContext& Context, const USeedMonstersReducer* Args);
     bool InvokeSeedMonstersWithArgs(const FReducerEventContext& Context, const FSeedMonstersArgs& Args);
 
-    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
         FUpdatePlayerTransformHandler,
         const FReducerEventContext&, Context,
         const FDbVector3Type&, Position,
-        const FDbRotatorType&, Rotation
+        const FDbRotatorType&, Rotation,
+        bool, IsAttacking
     );
     UPROPERTY(BlueprintAssignable, Category="SpacetimeDB")
     FUpdatePlayerTransformHandler OnUpdatePlayerTransform;
 
     UFUNCTION(BlueprintCallable, Category="SpacetimeDB")
-    void UpdatePlayerTransform(const FDbVector3Type& Position, const FDbRotatorType& Rotation);
+    void UpdatePlayerTransform(const FDbVector3Type& Position, const FDbRotatorType& Rotation, const bool IsAttacking);
 
     bool InvokeUpdatePlayerTransform(const FReducerEventContext& Context, const UUpdatePlayerTransformReducer* Args);
     bool InvokeUpdatePlayerTransformWithArgs(const FReducerEventContext& Context, const FUpdatePlayerTransformArgs& Args);
@@ -924,7 +925,7 @@ namespace SpacetimeDB::query_builder
 struct THEGOLDENAGE_API FPlayerCols
 {
     explicit FPlayerCols(const char* TableName)
-        : Name(TableName, "name"), Identity(TableName, "identity"), Position(TableName, "position"), Rotation(TableName, "rotation"), Online(TableName, "online"), UpdatedAt(TableName, "updated_at"), Role(TableName, "role"), Health(TableName, "health") {}
+        : Name(TableName, "name"), Identity(TableName, "identity"), Position(TableName, "position"), Rotation(TableName, "rotation"), Online(TableName, "online"), UpdatedAt(TableName, "updated_at"), Role(TableName, "role"), Health(TableName, "health"), IsAttacking(TableName, "is_attacking") {}
 
     ::SpacetimeDB::query_builder::Col<FPlayerType, FString> Name;
     ::SpacetimeDB::query_builder::Col<FPlayerType, FSpacetimeDBIdentity> Identity;
@@ -934,6 +935,7 @@ struct THEGOLDENAGE_API FPlayerCols
     ::SpacetimeDB::query_builder::Col<FPlayerType, FSpacetimeDBTimestamp> UpdatedAt;
     ::SpacetimeDB::query_builder::Col<FPlayerType, uint8> Role;
     ::SpacetimeDB::query_builder::Col<FPlayerType, float> Health;
+    ::SpacetimeDB::query_builder::Col<FPlayerType, bool> IsAttacking;
 };
 
 struct THEGOLDENAGE_API FPlayerIxCols
@@ -1318,6 +1320,15 @@ public:
         FBlueprintFloatColumn Column;
         Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("player") : Query.ResultSourceName;
         Column.ColumnName = TEXT("health");
+        return Column;
+    }
+
+    UFUNCTION(BlueprintPure, Category="SpacetimeDB|Queries|Player|Columns", meta=(DisplayName="Player IsAttacking"))
+    static FBlueprintBoolColumn PlayerIsAttacking(const FPlayerQuery& Query)
+    {
+        FBlueprintBoolColumn Column;
+        Column.ResultSourceName = Query.ResultSourceName.IsEmpty() ? TEXT("player") : Query.ResultSourceName;
+        Column.ColumnName = TEXT("is_attacking");
         return Column;
     }
 

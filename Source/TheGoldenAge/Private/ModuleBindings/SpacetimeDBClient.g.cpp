@@ -294,7 +294,7 @@ bool URemoteReducers::InvokeSeedMonstersWithArgs(const FReducerEventContext& Con
     return true;
 }
 
-void URemoteReducers::UpdatePlayerTransform(const FDbVector3Type& Position, const FDbRotatorType& Rotation)
+void URemoteReducers::UpdatePlayerTransform(const FDbVector3Type& Position, const FDbRotatorType& Rotation, const bool IsAttacking)
 {
     if (!Conn)
     {
@@ -302,7 +302,7 @@ void URemoteReducers::UpdatePlayerTransform(const FDbVector3Type& Position, cons
         return;
     }
 
-	FUpdatePlayerTransformArgs ReducerArgs(Position, Rotation);
+	FUpdatePlayerTransformArgs ReducerArgs(Position, Rotation, IsAttacking);
 	const uint32 RequestId = Conn->CallReducerTyped(TEXT("update_player_transform"), ReducerArgs);
 	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::UpdatePlayerTransform(ReducerArgs)); }
 }
@@ -321,7 +321,7 @@ bool URemoteReducers::InvokeUpdatePlayerTransform(const FReducerEventContext& Co
         return false;
     }
 
-    OnUpdatePlayerTransform.Broadcast(Context, Args->Position, Args->Rotation);
+    OnUpdatePlayerTransform.Broadcast(Context, Args->Position, Args->Rotation, Args->IsAttacking);
     return true;
 }
 
@@ -336,7 +336,7 @@ bool URemoteReducers::InvokeUpdatePlayerTransformWithArgs(const FReducerEventCon
         return false;
     }
 
-    OnUpdatePlayerTransform.Broadcast(Context, Args.Position, Args.Rotation);
+    OnUpdatePlayerTransform.Broadcast(Context, Args.Position, Args.Rotation, Args.IsAttacking);
     return true;
 }
 

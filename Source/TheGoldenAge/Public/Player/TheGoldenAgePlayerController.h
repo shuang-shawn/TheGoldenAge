@@ -16,6 +16,17 @@ class THEGOLDENAGE_API ATheGoldenAgePlayerController : public APlayerController
 public:
 	ATheGoldenAgePlayerController();
 
+	/**
+	 * Projects the mouse cursor onto the horizontal plane at PlaneZ.
+	 * Returns the world point where combat abilities should aim on the ground.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Targeting")
+	bool GetMouseCursorGroundLocation(FVector& OutGroundLocation, float PlaneZ) const;
+
+	/** Same as above, using the possessed pawn's current Z as the plane height. */
+	UFUNCTION(BlueprintCallable, Category = "Targeting")
+	bool GetMouseCursorGroundLocationForPawn(FVector& OutGroundLocation) const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;

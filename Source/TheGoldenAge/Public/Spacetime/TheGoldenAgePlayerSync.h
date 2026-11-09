@@ -43,6 +43,9 @@ public:
 	/** Calls damage_player for the logged-in player. The server writes the new health. */
 	void RequestLocalDamage(float Amount);
 
+	/** Pushes transform and attack presentation to the server immediately (e.g. attack start/end). */
+	void RequestLocalTransformPublish();
+
 private:
 	void Connect();
 	void Disconnect();

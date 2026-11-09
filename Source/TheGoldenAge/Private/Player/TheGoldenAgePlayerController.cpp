@@ -62,6 +62,50 @@ void ATheGoldenAgePlayerController::DamageMonster(uint64 MonsterId, float Amount
 	}
 }
 
+bool ATheGoldenAgePlayerController::GetMouseCursorGroundLocation(FVector& OutGroundLocation, float PlaneZ) const
+{
+	float MouseX = 0.f;
+	float MouseY = 0.f;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return false;
+	}
+
+	FVector WorldLocation = FVector::ZeroVector;
+	FVector WorldDirection = FVector::ZeroVector;
+	if (!DeprojectScreenPositionToWorld(MouseX, MouseY, WorldLocation, WorldDirection))
+	{
+		return false;
+	}
+
+	const float DirectionZ = WorldDirection.Z;
+	if (FMath::Abs(DirectionZ) <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const float TraceT = (PlaneZ - WorldLocation.Z) / DirectionZ;
+	if (TraceT < 0.f)
+	{
+		return false;
+	}
+
+	OutGroundLocation = WorldLocation + WorldDirection * TraceT;
+	OutGroundLocation.Z = PlaneZ;
+	return true;
+}
+
+bool ATheGoldenAgePlayerController::GetMouseCursorGroundLocationForPawn(FVector& OutGroundLocation) const
+{
+	const APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn)
+	{
+		return false;
+	}
+
+	return GetMouseCursorGroundLocation(OutGroundLocation, ControlledPawn->GetActorLocation().Z);
+}
+
 void ATheGoldenAgePlayerController::AddDefaultMappingContext()
 {
 	if (!DefaultMappingContext)
