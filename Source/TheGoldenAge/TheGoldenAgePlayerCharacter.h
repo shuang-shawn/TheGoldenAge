@@ -39,6 +39,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Movement")
 	void Move(const struct FInputActionValue& Value);
 
+	UFUNCTION(BlueprintCallable, Category = "Camera")
+	void Look(const struct FInputActionValue& Value);
+
+	void OnCameraRotateStarted();
+	void OnCameraRotateCompleted();
+
 	/** Future combat systems may request rotation toward a world direction without coupling to cursor polling. */
 	UFUNCTION(BlueprintCallable, Category = "Movement")
 	void RequestFaceDirection(const FVector& WorldDirection);
@@ -50,11 +56,41 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> FollowCamera;
 
+	/** Boom pitch while orbiting. More negative looks steeper down at the character. */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "-85", ClampMax = "-10"))
+	float CameraPitchMin = -75.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "-85", ClampMax = "-10"))
+	float CameraPitchMax = -20.f;
+
+	/** Degrees applied per unit of mouse delta while right mouse is held. */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.1"))
+	float CameraYawRotateSpeed = 8.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.1"))
+	float CameraPitchRotateSpeed = 5.f;
+
+	/** How quickly the boom catches the orbit target. Higher is snappier. */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.1"))
+	float CameraRotationInterpSpeed = 14.f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> MoveAction;
 
+	/** Mouse delta. Chorded to CameraRotateAction so it only triggers while that action is held. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> LookAction;
+
+	/** Right mouse button. Started and completed drive cursor capture around Look. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> CameraRotateAction;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Movement")
 	float MinMovingSpeed = 10.f;
+
+	/** How quickly the mesh yaws toward the camera-relative move direction. */
+	UPROPERTY(EditDefaultsOnly, Category = "Movement", meta = (ClampMin = "0.1"))
+	float FacingInterpSpeed = 24.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Animation")
 	float AnimPlayRateReferenceSpeed = 300.f;
@@ -83,7 +119,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Animation")
 	ETheGoldenAgeBattleMoveDirection CurrentBattleMoveDirection = ETheGoldenAgeBattleMoveDirection::None;
 
-	void UpdateTopDownCameraOrientation();
+	void UpdateTopDownCameraOrientation(float DeltaSeconds);
 	void UpdateMovementFacing(float DeltaSeconds);
 	void UpdateBattleLocomotionAnimation();
 
@@ -91,4 +127,12 @@ protected:
 	UAnimSequence* GetBattleAnimationForDirection(ETheGoldenAgeBattleMoveDirection Direction) const;
 
 	FVector LastMovementInputDirection = FVector::ZeroVector;
+
+	float CameraPitch = -45.f;
+	float CameraYaw = 45.f;
+	float TargetCameraPitch = -45.f;
+	float TargetCameraYaw = 45.f;
+	bool bRotatingCamera = false;
+	float SavedMouseX = 0.f;
+	float SavedMouseY = 0.f;
 };

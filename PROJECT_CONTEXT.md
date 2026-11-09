@@ -36,12 +36,13 @@ This file is the **authoritative shared reference** for project state. It is not
 
 ### After making changes
 
-1. Update `PROJECT_CONTEXT.md` to reflect **meaningful** changes.
-2. Update architecture, technical implementation, and development status sections as needed.
-3. Add an entry to the [Development Change Log](#h-development-change-log).
-4. Document new classes, systems, dependencies, interfaces, and important implementation details.
-5. Record known limitations, unresolved issues, or follow-up tasks.
-6. Ensure the document reflects the **actual** codebase, not intended or assumed state.
+1. **After implementing each task, run Live Coding compile** in the open Unreal Editor and confirm **successful compilation** before treating the task as done. Keep the editor open; do not close or restart it for a full project rebuild unless Live Coding cannot compile the change. If Live Coding fails or a full rebuild is required, explain why and give the user the steps. Never claim a successful compile without an actual successful result.
+2. Update `PROJECT_CONTEXT.md` to reflect **meaningful** changes.
+3. Update architecture, technical implementation, and development status sections as needed.
+4. Add an entry to the [Development Change Log](#h-development-change-log).
+5. Document new classes, systems, dependencies, interfaces, and important implementation details.
+6. Record known limitations, unresolved issues, or follow-up tasks.
+7. Ensure the document reflects the **actual** codebase, not intended or assumed state.
 
 ### Shared document rules
 
@@ -476,7 +477,7 @@ None active. If added: enable appropriate `OnlineSubsystem`, define server trave
 | Step | Notes |
 |------|--------|
 | **Generate project files** | Right-click `.uproject` or use UE batch files |
-| **Build** | `TheGoldenAgeEditor` Win64 target (primary dev platform per artifacts) |
+| **Build** | `TheGoldenAgeEditor` Win64 target (primary dev platform per artifacts). **After each implementation task, run Live Coding** in the open editor and confirm successful compilation (see [After making changes](#after-making-changes)). |
 | **Run** | Editor PIE on `Lvl_Main` |
 | **Automated tests** | **None** in repo |
 | **CI** | **None** configured |
@@ -571,6 +572,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-08 — Require Live Coding compile after each task
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Agents must run Unreal Live Coding after each implementation task and confirm successful compilation before treating the task as done. |
+| **Files / systems** | `PROJECT_CONTEXT.md` — [After making changes](#after-making-changes), [Build and testing](#build-and-testing), [AI agent responsibilities](#ai-agent-responsibilities). |
+| **Reason** | Catch C++ compile failures in the open editor before a task is reported complete. |
+| **Follow-up** | None. |
 
 ### 2026-11-08 — Character stuck on floor while walk anim played
 
@@ -679,10 +689,11 @@ Shared rules for **all developers and AI agents**. Remote: `https://github.com/s
 
 **After modifying the project**
 
-1. Review `git diff` and `git lfs status` (if available).
-2. Confirm new binaries are LFS-tracked, not plain blobs.
-3. Update `PROJECT_CONTEXT.md` if Git conventions, content layout, or repo state changed materially.
-4. Add a [Development Change Log](#h-development-change-log) entry for meaningful repo/config changes.
+1. **Run Live Coding compile** and confirm successful compilation before finishing the task (see [After making changes](#after-making-changes)).
+2. Review `git diff` and `git lfs status` (if available).
+3. Confirm new binaries are LFS-tracked, not plain blobs.
+4. Update `PROJECT_CONTEXT.md` if Git conventions, content layout, or repo state changed materially.
+5. Add a [Development Change Log](#h-development-change-log) entry for meaningful repo/config changes.
 
 ### Current repository state (LFS migration)
 

@@ -10,6 +10,7 @@
 #include "InputAction.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 
@@ -40,7 +41,7 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 	CameraBoom->bEnableCameraLag = true;
 	CameraBoom->CameraLagSpeed = 12.f;
 	CameraBoom->bDoCollisionTest = false;
-	CameraBoom->SetRelativeRotation(FRotator(-55.f, 0.f, 0.f));
+	CameraBoom->SetRelativeRotation(FRotator(-45.f, 0.f, 0.f));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -83,6 +84,20 @@ ATheGoldenAgePlayerCharacter::ATheGoldenAgePlayerCharacter()
 	{
 		MoveAction = MoveActionAsset.Object;
 	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> LookActionAsset(
+		TEXT("/Game/_Main/Input/IA_Look.IA_Look"));
+	if (LookActionAsset.Succeeded())
+	{
+		LookAction = LookActionAsset.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> CameraRotateActionAsset(
+		TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
+	if (CameraRotateActionAsset.Succeeded())
+	{
+		CameraRotateAction = CameraRotateActionAsset.Object;
+	}
 }
 
 void ATheGoldenAgePlayerCharacter::BeginPlay()
@@ -93,13 +108,21 @@ void ATheGoldenAgePlayerCharacter::BeginPlay()
 	{
 		MoveAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
 	}
+	if (!LookAction)
+	{
+		LookAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Look.IA_Look"));
+	}
+	if (!CameraRotateAction)
+	{
+		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
+	}
 }
 
 void ATheGoldenAgePlayerCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	UpdateTopDownCameraOrientation();
+	UpdateTopDownCameraOrientation(DeltaSeconds);
 	UpdateMovementFacing(DeltaSeconds);
 	UpdateBattleLocomotionAnimation();
 }
@@ -113,6 +136,14 @@ void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pl
 	{
 		MoveAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Move.IA_Move"));
 	}
+	if (!LookAction)
+	{
+		LookAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_Look.IA_Look"));
+	}
+	if (!CameraRotateAction)
+	{
+		CameraRotateAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/_Main/Input/IA_CameraRotate.IA_CameraRotate"));
+	}
 
 	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
@@ -120,6 +151,16 @@ void ATheGoldenAgePlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pl
 		{
 			EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ATheGoldenAgePlayerCharacter::Move);
 			EnhancedInput->BindAction(MoveAction, ETriggerEvent::Completed, this, &ATheGoldenAgePlayerCharacter::Move);
+		}
+		if (LookAction)
+		{
+			EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ATheGoldenAgePlayerCharacter::Look);
+		}
+		if (CameraRotateAction)
+		{
+			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Started, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateStarted);
+			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Completed, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateCompleted);
+			EnhancedInput->BindAction(CameraRotateAction, ETriggerEvent::Canceled, this, &ATheGoldenAgePlayerCharacter::OnCameraRotateCompleted);
 		}
 	}
 }
@@ -138,7 +179,7 @@ void ATheGoldenAgePlayerCharacter::Move(const FInputActionValue& Value)
 		return;
 	}
 
-	const FRotator CameraYawRot(0.f, CameraBoom->GetComponentRotation().Yaw, 0.f);
+	const FRotator CameraYawRot(0.f, CameraYaw, 0.f);
 	const FVector ForwardDirection = FRotationMatrix(CameraYawRot).GetUnitAxis(EAxis::X);
 	const FVector RightDirection = FRotationMatrix(CameraYawRot).GetUnitAxis(EAxis::Y);
 
@@ -160,15 +201,62 @@ void ATheGoldenAgePlayerCharacter::RequestFaceDirection(const FVector& WorldDire
 	SetActorRotation(FRotationMatrix::MakeFromX(FlatDirection).Rotator());
 }
 
-void ATheGoldenAgePlayerCharacter::UpdateTopDownCameraOrientation()
+void ATheGoldenAgePlayerCharacter::Look(const FInputActionValue& Value)
+{
+	const FVector2D LookVector = Value.Get<FVector2D>();
+	TargetCameraYaw += LookVector.X * CameraYawRotateSpeed;
+
+	const float PitchMin = FMath::Min(CameraPitchMin, CameraPitchMax);
+	const float PitchMax = FMath::Max(CameraPitchMin, CameraPitchMax);
+	TargetCameraPitch = FMath::Clamp(TargetCameraPitch + LookVector.Y * CameraPitchRotateSpeed, PitchMin, PitchMax);
+}
+
+void ATheGoldenAgePlayerCharacter::OnCameraRotateStarted()
+{
+	bRotatingCamera = true;
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->GetMousePosition(SavedMouseX, SavedMouseY);
+		PC->CurrentMouseCursor = EMouseCursor::None;
+		PC->SetShowMouseCursor(false);
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::OnCameraRotateCompleted()
+{
+	if (!bRotatingCamera)
+	{
+		return;
+	}
+
+	bRotatingCamera = false;
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->CurrentMouseCursor = EMouseCursor::Default;
+		PC->SetShowMouseCursor(true);
+		PC->SetMouseLocation(FMath::RoundToInt(SavedMouseX), FMath::RoundToInt(SavedMouseY));
+	}
+}
+
+void ATheGoldenAgePlayerCharacter::UpdateTopDownCameraOrientation(float DeltaSeconds)
 {
 	if (!CameraBoom)
 	{
 		return;
 	}
 
+	const FRotator SmoothedRotation = FMath::RInterpTo(
+		FRotator(CameraPitch, CameraYaw, 0.f),
+		FRotator(TargetCameraPitch, TargetCameraYaw, 0.f),
+		DeltaSeconds,
+		CameraRotationInterpSpeed);
+	CameraPitch = SmoothedRotation.Pitch;
+	CameraYaw = SmoothedRotation.Yaw;
+
 	CameraBoom->SetUsingAbsoluteRotation(true);
-	CameraBoom->SetWorldRotation(FRotator(-55.f, 45.f, 0.f));
+	CameraBoom->SetWorldRotation(SmoothedRotation);
 }
 
 void ATheGoldenAgePlayerCharacter::UpdateMovementFacing(float DeltaSeconds)
@@ -176,13 +264,13 @@ void ATheGoldenAgePlayerCharacter::UpdateMovementFacing(float DeltaSeconds)
 	const float Speed2D = GetVelocity().Size2D();
 	FVector FaceDirection = FVector::ZeroVector;
 
-	if (Speed2D >= MinMovingSpeed)
+	if (!LastMovementInputDirection.IsNearlyZero())
+	{
+		FaceDirection = LastMovementInputDirection;
+	}
+	else if (Speed2D >= MinMovingSpeed)
 	{
 		FaceDirection = GetVelocity().GetSafeNormal2D();
-	}
-	else if (!LastMovementInputDirection.IsNearlyZero())
-	{
-		return;
 	}
 
 	if (!FaceDirection.IsNearlyZero())
@@ -192,7 +280,7 @@ void ATheGoldenAgePlayerCharacter::UpdateMovementFacing(float DeltaSeconds)
 			GetActorRotation(),
 			TargetRotation,
 			DeltaSeconds,
-			GetCharacterMovement()->RotationRate.Yaw / 90.f);
+			FacingInterpSpeed);
 		SetActorRotation(FRotator(0.f, NewRotation.Yaw, 0.f));
 	}
 }
