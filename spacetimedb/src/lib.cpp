@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <vector>
 
 using namespace SpacetimeDB;
 
@@ -65,6 +66,40 @@ SPACETIMEDB_TABLE(PlayerSession, player_session, Private)
 FIELD_PrimaryKey(player_session, connection_id)
 FIELD_Unique(player_session, name)
 
+// Public. One persistent row per monster. Clients spawn from this table.
+// kind: 0 = Chest Monster, 1 = Ghost Fish.
+// spawn_* is the authored point and is never overwritten by movement updates.
+// owner is the player name currently driving the monster, or empty when unclaimed.
+// loop_attack is true only while that owner still sees a player in range.
+struct Monster
+{
+    uint64_t id;
+    uint8_t kind;
+    DbVector3 spawn_position;
+    DbRotator spawn_rotation;
+    DbVector3 position;
+    DbRotator rotation;
+    std::string owner;
+    bool is_attacking;
+    bool loop_attack;
+    Timestamp updated_at;
+};
+SPACETIMEDB_STRUCT(
+    Monster,
+    id,
+    kind,
+    spawn_position,
+    spawn_rotation,
+    position,
+    rotation,
+    owner,
+    is_attacking,
+    loop_attack,
+    updated_at)
+SPACETIMEDB_TABLE(Monster, monster, Public)
+FIELD_PrimaryKeyAutoInc(monster, id)
+FIELD_Index(monster, owner)
+
 namespace
 {
 constexpr size_t kMaxUsernameLength = 24;
@@ -120,6 +155,8 @@ Identity AllocatePlayerIdentity(ReducerContext& ctx)
     }
 }
 
+void ReleaseMonstersOwnedBy(ReducerContext& ctx, const std::string& Name);
+
 void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const std::string& Name)
 {
     if (auto ExistingByName = ctx.db[player_session_name].find(Name))
@@ -134,6 +171,7 @@ void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const s
     {
         if (ExistingByConnection->name != Name)
         {
+            ReleaseMonstersOwnedBy(ctx, ExistingByConnection->name);
             if (auto OtherPlayer = ctx.db[player_name].find(ExistingByConnection->name))
             {
                 OtherPlayer->online = false;
@@ -150,6 +188,29 @@ void BindConnection(ReducerContext& ctx, const ConnectionId& Connection, const s
     ctx.db[player_session].insert(PlayerSession{Connection, Name});
 }
 
+void ReleaseMonstersOwnedBy(ReducerContext& ctx, const std::string& Name)
+{
+    if (Name.empty())
+    {
+        return;
+    }
+
+    std::vector<Monster> Owned;
+    for (const auto& Row : ctx.db[monster_owner].filter(Name))
+    {
+        Owned.push_back(Row);
+    }
+
+    for (Monster& Row : Owned)
+    {
+        Row.owner.clear();
+        Row.is_attacking = false;
+        Row.loop_attack = false;
+        Row.updated_at = ctx.timestamp;
+        ctx.db[monster_id].update(Row);
+    }
+}
+
 void SetPlayerOfflineByConnection(ReducerContext& ctx)
 {
     if (!ctx.connection_id)
@@ -160,6 +221,8 @@ void SetPlayerOfflineByConnection(ReducerContext& ctx)
     const ConnectionId Connection = *ctx.connection_id;
     if (auto Session = ctx.db[player_session_connection_id].find(Connection))
     {
+        ReleaseMonstersOwnedBy(ctx, Session->name);
+
         if (auto PlayerRow = ctx.db[player_name].find(Session->name))
         {
             PlayerRow->online = false;
@@ -199,11 +262,85 @@ bool UpdateOnlinePlayerTransform(
     ctx.db[player_name].update(*PlayerRow);
     return true;
 }
+
+// Logged-in player name for this connection, or empty when the caller cannot act.
+std::string OnlineCallerName(ReducerContext& ctx)
+{
+    if (!ctx.connection_id)
+    {
+        return {};
+    }
+
+    const auto Session = ctx.db[player_session_connection_id].find(*ctx.connection_id);
+    if (!Session)
+    {
+        return {};
+    }
+
+    const auto PlayerRow = ctx.db[player_name].find(Session->name);
+    if (!PlayerRow || !PlayerRow->online)
+    {
+        return {};
+    }
+
+    return Session->name;
+}
+
+bool MonsterOwnerIsAbsent(ReducerContext& ctx, const std::string& Owner)
+{
+    if (Owner.empty())
+    {
+        return true;
+    }
+
+    const auto OwnerRow = ctx.db[player_name].find(Owner);
+    return !OwnerRow || !OwnerRow->online;
+}
+
+Monster MakeMonster(uint8_t Kind, const DbVector3& Spawn, const DbRotator& Rotation, Timestamp UpdatedAt)
+{
+    return Monster{
+        0,
+        Kind,
+        Spawn,
+        Rotation,
+        Spawn,
+        Rotation,
+        std::string{},
+        false,
+        false,
+        UpdatedAt
+    };
+}
+
+// Positions match the actors that were placed in Lvl_Main before server seeding.
+void SeedMonstersIfEmpty(ReducerContext& ctx)
+{
+    if (ctx.db[monster].count() > 0)
+    {
+        return;
+    }
+
+    const DbRotator Rotation{0.f, 0.f, 0.f};
+    const DbVector3 ChestSpawn{-30.f, 420.f, 70.f};
+    const DbVector3 GhostFishSpawn{-510.f, 440.f, 70.f};
+    ctx.db[monster].insert(MakeMonster(0, ChestSpawn, Rotation, ctx.timestamp));
+    ctx.db[monster].insert(MakeMonster(1, GhostFishSpawn, Rotation, ctx.timestamp));
+    LOG_INFO("Seeded Chest Monster and Ghost Fish");
+}
 } // namespace
 
 SPACETIMEDB_INIT(init, ReducerContext ctx)
 {
     LOG_INFO("TheGoldenAge module ready");
+    SeedMonstersIfEmpty(ctx);
+    return Ok();
+}
+
+// init does not re-run on an existing database. Call this once after publish.
+SPACETIMEDB_REDUCER(seed_monsters, ReducerContext ctx)
+{
+    SeedMonstersIfEmpty(ctx);
     return Ok();
 }
 
@@ -299,5 +436,97 @@ SPACETIMEDB_REDUCER(update_player_transform, ReducerContext ctx, DbVector3 posit
         return Err("Not logged in");
     }
 
+    return Ok();
+}
+
+SPACETIMEDB_REDUCER(claim_monster, ReducerContext ctx, uint64_t id)
+{
+    const std::string Caller = OnlineCallerName(ctx);
+    if (Caller.empty())
+    {
+        return Err("Not logged in");
+    }
+
+    auto Row = ctx.db[monster_id].find(id);
+    if (!Row)
+    {
+        return Err("Unknown monster");
+    }
+
+    if (Row->owner == Caller)
+    {
+        return Ok();
+    }
+
+    if (!MonsterOwnerIsAbsent(ctx, Row->owner))
+    {
+        return Err("Already claimed");
+    }
+
+    Row->owner = Caller;
+    Row->updated_at = ctx.timestamp;
+    ctx.db[monster_id].update(*Row);
+    return Ok();
+}
+
+SPACETIMEDB_REDUCER(
+    update_monster,
+    ReducerContext ctx,
+    uint64_t id,
+    DbVector3 position,
+    DbRotator rotation,
+    bool is_attacking,
+    bool loop_attack)
+{
+    const std::string Caller = OnlineCallerName(ctx);
+    if (Caller.empty())
+    {
+        return Err("Not logged in");
+    }
+
+    auto Row = ctx.db[monster_id].find(id);
+    if (!Row)
+    {
+        return Err("Unknown monster");
+    }
+
+    if (Row->owner != Caller)
+    {
+        return Err("Not the owner");
+    }
+
+    Row->position = position;
+    Row->rotation = rotation;
+    Row->is_attacking = is_attacking;
+    Row->loop_attack = loop_attack;
+    Row->updated_at = ctx.timestamp;
+    ctx.db[monster_id].update(*Row);
+    return Ok();
+}
+
+SPACETIMEDB_REDUCER(release_monster, ReducerContext ctx, uint64_t id)
+{
+    const std::string Caller = OnlineCallerName(ctx);
+    if (Caller.empty())
+    {
+        return Err("Not logged in");
+    }
+
+    auto Row = ctx.db[monster_id].find(id);
+    if (!Row)
+    {
+        return Err("Unknown monster");
+    }
+
+    if (Row->owner != Caller)
+    {
+        return Err("Not the owner");
+    }
+
+    Row->owner.clear();
+    Row->is_attacking = false;
+    Row->loop_attack = false;
+    Row->updated_at = ctx.timestamp;
+    ctx.db[monster_id].update(*Row);
     return Ok();
 }

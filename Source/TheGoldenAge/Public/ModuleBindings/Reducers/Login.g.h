@@ -19,13 +19,12 @@ struct THEGOLDENAGE_API FLoginArgs
     UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
     FString Password;
 
-    /** 0 = Hero, 1 = Explorer. Used only when this call creates the player row. */
     UPROPERTY(BlueprintReadWrite, Category="SpacetimeDB")
     uint8 Role = 0;
 
     FLoginArgs() = default;
 
-    FLoginArgs(const FString& InName, const FString& InPassword, uint8 InRole)
+    FLoginArgs(const FString& InName, const FString& InPassword, const uint8& InRole)
         : Name(InName), Password(InPassword), Role(InRole)
     {}
 

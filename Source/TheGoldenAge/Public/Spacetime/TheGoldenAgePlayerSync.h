@@ -37,6 +37,9 @@ public:
 
 	static bool IsValidUsername(const FString& Username, FString& OutError);
 
+	bool IsLoggedIn() const { return bLoggedIn; }
+	const FString& GetLocalUsername() const { return LocalUsername; }
+
 private:
 	void Connect();
 	void Disconnect();
@@ -74,6 +77,12 @@ private:
 
 	UFUNCTION()
 	void HandleRoleChoiceCancelled();
+
+	UFUNCTION()
+	void HandleClaimMonster(const FReducerEventContext& Context, uint64 Id);
+
+	UFUNCTION()
+	void HandleReleaseMonster(const FReducerEventContext& Context, uint64 Id);
 
 	UFUNCTION()
 	void HandleLoginReducer(

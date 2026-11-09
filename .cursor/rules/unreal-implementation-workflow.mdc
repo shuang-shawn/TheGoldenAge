@@ -13,7 +13,13 @@ After completing any implementation, follow this workflow:
 - Review the modified code and relevant assets for obvious errors.
 - Avoid making unrelated changes or expanding the task scope.
 
-## 2. Compilation
+## 2. SpacetimeDB commands
+
+- When the change needs the `spacetime` CLI (`publish`, `generate`, `call`, and similar), run that command in this session.
+- Do not leave it as a manual step for the user. Report the command and its result.
+- This does not include Unreal compilation. Live Coding stays manual.
+
+## 3. Compilation
 
 - Do not trigger Live Coding, hot reload, or any other compile (in the editor or from the command line) after a task.
 - Leave compilation to the user. They compile manually when the task is done.
@@ -21,7 +27,7 @@ After completing any implementation, follow this workflow:
 - In the final report, tell the user to compile with Live Coding in the open editor. Do not report a compile result unless they already compiled and shared that result.
 - Never claim successful compilation without an actual successful compilation result from the user.
 
-## 3. Manual Verification Instructions
+## 4. Manual Verification Instructions
 
 Do not automatically perform gameplay testing or automate the verification process.
 
@@ -35,7 +41,7 @@ For each feature, explain:
 
 Include relevant details: which Blueprint to open, which settings to inspect, which keys to press, or which gameplay scenario to try. Keep instructions specific to the implementation.
 
-## 4. Restrictions
+## 5. Restrictions
 
 - Do not create automated gameplay tests, test scripts, or verification tools unless explicitly requested.
 - Do not automatically launch the game or Unreal Editor solely to perform gameplay verification.
@@ -43,7 +49,7 @@ Include relevant details: which Blueprint to open, which settings to inspect, wh
 - Do not treat an unperformed gameplay test as a verified result.
 - Do not treat an unperformed compile as a verified result. Runtime and gameplay verification is performed by the user.
 
-## 5. Final Implementation Report
+## 6. Final Implementation Report
 
 After each implementation, provide a concise summary:
 

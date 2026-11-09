@@ -64,13 +64,13 @@ void ATheGoldenAgeChestMonster::HandleNearbyPlayers_Implementation(
 		if (!AttackPlayer || HasCurrentAttackFinished(PlaybackTime, PlayLength))
 		{
 			bIsAttacking = false;
-			bLoopAttack = true;
+			bLoopAttack = false;
 		}
 	}
 	else
 	{
 		bIsAttacking = false;
-		bLoopAttack = true;
+		bLoopAttack = false;
 	}
 
 	if (bIsAttacking && AttackPlayer)
@@ -135,6 +135,30 @@ bool ATheGoldenAgeChestMonster::HasCurrentAttackFinished(float PlaybackTime, flo
 	const bool bReachedEnd = PlaybackTime >= PlayLength - AttackEndToleranceSeconds;
 	const bool bWrapped = bHasAttackSample && PlaybackTime + AttackEndToleranceSeconds < AttackSampleTime;
 	return bReachedEnd || bWrapped;
+}
+
+void ATheGoldenAgeChestMonster::ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack)
+{
+	bIsAttacking = bInAttacking;
+	bLoopAttack = bInLoopAttack;
+	bHasAttackSample = false;
+	PushAnimState();
+}
+
+void ATheGoldenAgeChestMonster::GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const
+{
+	bOutAttacking = bIsAttacking;
+	bOutLoopAttack = bLoopAttack;
+}
+
+bool ATheGoldenAgeChestMonster::ShouldReleaseServerOwnership() const
+{
+	return !bIsAttacking;
+}
+
+float ATheGoldenAgeChestMonster::GetFacingTurnRate() const
+{
+	return FacingTurnRate;
 }
 
 void ATheGoldenAgeChestMonster::PushAnimState()

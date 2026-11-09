@@ -64,13 +64,13 @@ void ATheGoldenAgeGhostFish::HandleNearbyPlayers_Implementation(
 		if (!AttackPlayer || HasCurrentAttackFinished(PlaybackTime, PlayLength))
 		{
 			bIsAttacking = false;
-			bLoopAttack = true;
+			bLoopAttack = false;
 		}
 	}
 	else
 	{
 		bIsAttacking = false;
-		bLoopAttack = true;
+		bLoopAttack = false;
 	}
 
 	if (bIsAttacking && AttackPlayer)
@@ -135,6 +135,30 @@ bool ATheGoldenAgeGhostFish::HasCurrentAttackFinished(float PlaybackTime, float 
 	const bool bReachedEnd = PlaybackTime >= PlayLength - GhostFishAnim::AttackEndToleranceSeconds;
 	const bool bWrapped = bHasAttackSample && PlaybackTime + GhostFishAnim::AttackEndToleranceSeconds < AttackSampleTime;
 	return bReachedEnd || bWrapped;
+}
+
+void ATheGoldenAgeGhostFish::ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack)
+{
+	bIsAttacking = bInAttacking;
+	bLoopAttack = bInLoopAttack;
+	bHasAttackSample = false;
+	PushAnimState();
+}
+
+void ATheGoldenAgeGhostFish::GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const
+{
+	bOutAttacking = bIsAttacking;
+	bOutLoopAttack = bLoopAttack;
+}
+
+bool ATheGoldenAgeGhostFish::ShouldReleaseServerOwnership() const
+{
+	return !bIsAttacking;
+}
+
+float ATheGoldenAgeGhostFish::GetFacingTurnRate() const
+{
+	return FacingTurnRate;
 }
 
 void ATheGoldenAgeGhostFish::PushAnimState()

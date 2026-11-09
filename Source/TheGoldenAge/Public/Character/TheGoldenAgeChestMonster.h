@@ -32,12 +32,13 @@ protected:
 	bool bIsAttacking = false;
 
 	/**
-	 * True while Attack 01 should loop. False only while the current cycle plays out
-	 * after the last player leaves, so the clip holds its last frame instead of wrapping.
-	 * Copied each tick onto ABP_ChestMonster's bLoopAttack.
+	 * True only while a player is in range and Attack 01 should loop.
+	 * False when nobody is nearby, including idle and the last cycle playing out,
+	 * so the clip holds its last frame instead of wrapping.
+	 * Copied each tick onto ABP_ChestMonster's bLoopAttack and published as loop_attack.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Chest Monster|Animation")
-	bool bLoopAttack = true;
+	bool bLoopAttack = false;
 
 	/** Previous Attack 01 playback time, used to notice a cycle that already wrapped. */
 	float AttackSampleTime = 0.f;
@@ -46,6 +47,10 @@ protected:
 	bool bHasAttackSample = false;
 
 	virtual void HandleNearbyPlayers_Implementation(const TArray<AActor*>& NearbyPlayers, float DeltaSeconds) override;
+	virtual void ApplyReplicatedAnim(bool bInAttacking, bool bInLoopAttack) override;
+	virtual void GetServerAnimState(bool& bOutAttacking, bool& bOutLoopAttack) const override;
+	virtual bool ShouldReleaseServerOwnership() const override;
+	virtual float GetFacingTurnRate() const override;
 
 	AActor* FindClosestPlayer(const TArray<AActor*>& NearbyPlayers) const;
 	void FacePlayer(const AActor* Player, float DeltaSeconds);

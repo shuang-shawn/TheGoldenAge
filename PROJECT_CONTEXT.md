@@ -39,12 +39,13 @@ Cursor always applies `.cursor/rules/project-context.mdc`: read this file before
 ### After making changes
 
 1. **Do not compile.** Do not trigger Live Coding, hot reload, or a command-line build. The user compiles manually with Live Coding in the open editor after the task. Do not close or restart the editor, and do not start a full rebuild. In the report, tell them to compile. Never claim a successful compile unless they already compiled and shared the result.
-2. Update `PROJECT_CONTEXT.md` to reflect **meaningful** changes.
-3. Update architecture, technical implementation, and development status sections as needed.
-4. Add an entry to the [Development Change Log](#h-development-change-log).
-5. Document new classes, systems, dependencies, interfaces, and important implementation details.
-6. Record known limitations, unresolved issues, or follow-up tasks.
-7. Ensure the document reflects the **actual** codebase, not intended or assumed state.
+2. **Run SpacetimeDB commands.** When a change needs the `spacetime` CLI (`publish`, `generate`, `call`, and similar), run it in this session. Do not leave that command as a manual step. Report the command result. Unreal compilation stays manual.
+3. Update `PROJECT_CONTEXT.md` to reflect **meaningful** changes.
+4. Update architecture, technical implementation, and development status sections as needed.
+5. Add an entry to the [Development Change Log](#h-development-change-log).
+6. Document new classes, systems, dependencies, interfaces, and important implementation details.
+7. Record known limitations, unresolved issues, or follow-up tasks.
+8. Ensure the document reflects the **actual** codebase, not intended or assumed state.
 
 ### Shared document rules
 
@@ -248,10 +249,10 @@ Config/
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
-| AI / NPCs | Shared player detection; Chest Monster and Ghostfish attack | **Partial** — `ATheGoldenAgeMonster` reports actors tagged `Player` inside `DetectionRange`. Role tags are not part of detection. The local Hero sees monsters tagged `Ghost`; the local Explorer sees monsters tagged `Trap`. `ATheGoldenAgeChestMonster` and `ATheGoldenAgeGhostFish` each face the closest player and set `bIsAttacking`. Leaving range finishes the current attack cycle, then idle. No pathfinding or damage. |
+| AI / NPCs | Shared player detection; Chest Monster and Ghostfish attack | **Partial** — `ATheGoldenAgeMonster` reports actors tagged `Player` inside `DetectionRange`. Role tags are not part of detection. The local Hero sees monsters tagged `Ghost`; the local Explorer sees monsters tagged `Trap`. Server-backed Chest Monster and Ghost Fish spawn from the SpacetimeDB `monster` table. The first logged-in client with a player in range claims the row and runs the face-and-attack logic. Attack-flag changes are sent immediately. Position and rotation are sent at most 20 times per second, and only after the monster moves at least 10 cm or turns at least 5 degrees. Other clients teleport to the reported position and turn toward the latest yaw at `FacingTurnRate`. The claim drops when the owner leaves range and the attack cycle finishes, or when that player disconnects. `MonsterId` 0 stays local-only. No pathfinding or damage. |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
-| Multiplayer / replication | — | **Not configured** (design asks to consider net compatibility in new systems). |
+| Multiplayer / replication | SpacetimeDB player and monster rows. No Unreal replication. | **Partial** — players and the two seeded monsters are server rows. Unreal net driver is still not configured. |
 | World partition / streaming | Commandlet class referenced in config | **No evidence of partitioned main level content** |
 
 ### C++ classes and Blueprints
@@ -263,16 +264,17 @@ Config/
 | `ATheGoldenAgeGameMode` | No default pawn. `RestartPlayer` does nothing; `UTheGoldenAgePlayerSync` possesses `BP_Hero` or `BP_Explorer` after login. |
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
 | `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` on every instance. `BP_Hero` also has `Hero`. `BP_Explorer` also has `Explorer`. On local possess, monster visibility is applied from those role tags. |
-| `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Detection collects tag `Player` only. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. |
-| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until the attack sequence whose name contains `Attack` reaches its last frame, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
-| `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. Same face-and-attack behaviour for now: closest player, `bIsAttacking`, and `bLoopAttack` until the attack sequence whose name contains `Attack` finishes. Used by `BP_GhostFish` after that Blueprint is reparented. Clips stay in `ABP_GhostFish`. |
+| `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Detection collects tag `Player` only. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. `MonsterId` 0 is local-only. A server id is `Passive` (turn toward the latest server yaw, and claim when a player is in range and the row is unowned), `Claiming`, or `Owner` (runs the child logic). The owner sends attack-flag changes immediately and sends position or rotation at most 20 times per second after a 10 cm or 5 degree change. |
+| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player, sets `bIsAttacking`, and sets `bLoopAttack` true only while a player is inside range. After the player leaves, `bLoopAttack` stays false through the rest of the attack sequence whose name contains `Attack`, then idle. That false value is what the owner writes to `loop_attack`. The owner releases the server claim once idle is reached and nobody is in range. Used by `BP_ChestMonster` and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
+| `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. Same face-and-attack behaviour for now, including `bLoopAttack` false whenever no player is nearby, and the server claim and release. Used by `BP_GhostFish` after that Blueprint is reparented. Clips stay in `ABP_GhostFish`. |
+| `UTheGoldenAgeMonsterSync` | World subsystem. Spawns `BP_ChestMonster` (`kind` 0) or `BP_GhostFish` (`kind` 1) from the `monster` table and calls `claim_monster`, `update_monster`, and `release_monster`. `UTheGoldenAgePlayerSync` owns the connection and forwards table events. |
 
 **Blueprints / content:**
 
 - **`BP_Hero`** — `Content/_Main/Blueprint/`. Parent `ATheGoldenAgePlayerCharacter`. Actor tags `Player` and `Hero`. Mesh `SK_TinyHeroPolyart`, Tiny Hero battle in-place clips, sword/shield on `CharacterMesh0`. Spawned for player role Hero (`role` 0). The placed `Lvl_Main` instance is still named `BP_TinyHeroPolyart_C_0`; begin play uses it as the spawn anchor and then destroys it.
 - **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Actor tags `Player` and `Explorer`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
-- **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Actor tags `Trap` and `Monster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`. The placed actor has the same `Trap` and `Monster` tags.
-- **`BP_GhostFish`** — `Content/_Main/Blueprint/`. Parent is still `ATheGoldenAgeChestMonster` until Live Coding registers `ATheGoldenAgeGhostFish` and the Blueprint is reparented. Actor tags `Ghost` and `Monster`. Mesh is polyart `Swarm08_SK` with `ABP_GhostFish`. `DetectionRange` on this Blueprint is 250. One instance is in `Lvl_Main` at (-360, 420, 70), west of the Chest Monster, with those tags. A hero sees it. An explorer does not.
+- **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Actor tags `Trap` and `Monster` are on the Blueprint defaults, so a spawned instance keeps them. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. It is not placed in `Lvl_Main`. The server seeds it at (-30, 420, 70) and the client spawns it from the `monster` table.
+- **`BP_GhostFish`** — `Content/_Main/Blueprint/`. Parent is still `ATheGoldenAgeChestMonster` until Live Coding registers `ATheGoldenAgeGhostFish` and the Blueprint is reparented. Actor tags `Ghost` and `Monster` are on the Blueprint defaults. Mesh is polyart `Swarm08_SK` with `ABP_GhostFish`. `DetectionRange` on this Blueprint is 250. It is not placed in `Lvl_Main`. The server seeds it at (-510, 440, 70) and the client spawns it. A hero sees it. An explorer does not.
 - **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
 - **`BP_Swarm08`** — `Content/_Main/Blueprint/`. Same parent, detection, facing, and capsule as `BP_ChestMonster`. Mesh is polyart `Swarm08_SK` with `ABP_Swarm08`. One instance is in `Lvl_Main` at (-30, 920, 70), 500 cm north of the Chest Monster.
 - **`ABP_Swarm08`** — `Content/_Main/Blueprint/`. Same graph as `ABP_ChestMonster` on polyart `Swarm08_SK_Skeleton`: `bIsAttacking` selects `Swarm08_Attack_Anim`, otherwise looping `Swarm08_Idle_Anim`. Attack Loop Animation is `bLoopAttack`. Only idle and attack are wired. The Anim Blueprint preview mesh is unset, so the animation editor viewport does not show the creature; the character Blueprint does.
@@ -294,7 +296,7 @@ Config/
 
 ### Backend / external integrations
 
-- **SpacetimeDB** module in `spacetimedb/` (`maincloud`, database identity in `spacetimedb/spacetime.json`). Public `player` rows keep username, stable identity, transform, online flag, and `role` (`0` Hero, `1` Explorer). `login` creates the row only for a new username and stores the chosen role; an existing account keeps its role. `UTheGoldenAgePlayerSync` subscribes, spawns `BP_Hero` or `BP_Explorer`, and possesses the local pawn. Published to `maincloud` on 2026-11-09. A client built before the `role` field cannot read the table until it is recompiled.
+- **SpacetimeDB** module in `spacetimedb/` (`maincloud`, database identity in `spacetimedb/spacetime.json`). Public `player` rows keep username, stable identity, transform, online flag, and `role` (`0` Hero, `1` Explorer). `login` creates the row only for a new username and stores the chosen role; an existing account keeps its role. `UTheGoldenAgePlayerSync` subscribes, spawns `BP_Hero` or `BP_Explorer`, and possesses the local pawn. Public `monster` rows keep `kind` (`0` Chest Monster, `1` Ghost Fish), spawn transform, live transform, owner player name (empty when unclaimed), `is_attacking`, and `loop_attack`. `loop_attack` is true only while the owner still detects a player. Idle, the last attack cycle, `release_monster`, and disconnect all store false. `claim_monster`, `update_monster`, and `release_monster` are owner-checked through the player session. Disconnect clears that player's claims and returns the monster to idle. `seed_monsters` inserts the two rows only when the table is empty. `init` calls the same helper, but `init` does not re-run on the existing database, so `seed_monsters` must be called once after publish. The module change is local until that publish. A client built before the `monster` table cannot connect to the new schema until it is regenerated and recompiled.
 - Local **unreal-mcp** server for editor automation via MCP (developer machine setup; optional).
 - Android File Server plugin settings exist in `DefaultEngine.ini` (editor/deploy aid); treat credentials in ini as **environment secrets** — do not copy tokens into this document.
 
@@ -443,9 +445,10 @@ These support **editor automation**, not packaged game features, unless explicit
 
 ### Data flow
 
-**No custom data flow.** Future systems should document:
+Player and monster state are SpacetimeDB rows. The local client simulates its pawn and any monster it has claimed, then writes that state through reducers. Every client spawns actors from the subscribed rows and snaps the ones it does not own. Unreal replication is not used.
 
-- Authoritative state (server vs client) if multiplayer is added  
+Future systems should document:
+
 - Save game objects / subsystems  
 - Asset manager rules if using streamed content  
 
@@ -538,7 +541,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
 | Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
 | Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
-| Monsters | `ATheGoldenAgeMonster` detection on tag `Player`; Hero sees `Ghost`, Explorer sees `Trap` | No damage. Chest Monster, Ghostfish, and Swarm08 are in `Lvl_Main`. Swarm08 has no `Monster` tag, so both roles still see it. |
+| Monsters | Detection on tag `Player`; Hero sees `Ghost`, Explorer sees `Trap`. Chest Monster and Ghost Fish are seeded server rows | No damage and no movement. The module must be published, `seed_monsters` called once, and Unreal bindings regenerated before PIE. `BP_GhostFish` still needs reparenting to `ATheGoldenAgeGhostFish`. `BP_Swarm08` was not in `Lvl_Main` when the other two placed monsters were removed. |
 
 ### Known issues / technical debt
 
@@ -587,6 +590,9 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | 2026-11-09 | Monster sight uses actor tags; detection stays on **`Player`** | `hero` sees `ghost`, `explorer` sees `trap`. Both creatures also have `monster`. Detection does not read role tags. | Per-role monster classes, or hiding by collision channel | `ATheGoldenAgeMonster`, `BP_Hero`, `BP_Explorer`, `BP_ChestMonster`, `BP_GhostFish` |
 | 2026-11-09 | Swarm08 reuses **`ATheGoldenAgeChestMonster`** | Idle/attack detection is the same; only the mesh and Anim Blueprint differ. The C++ class already finds a sequence whose name contains `Attack` | A new Swarm C++ class that copies the same tick logic | `BP_Swarm08`, `ABP_Swarm08` |
 | 2026-11-09 | Ghost Fish is **`ATheGoldenAgeGhostFish`**, a child of the monster base | The Blueprint can diverge from the Chest Monster later. Current tick logic is a copy: face the closest player and drive `bIsAttacking` / `bLoopAttack` | Keep `BP_GhostFish` on `ATheGoldenAgeChestMonster`, or inherit Ghost Fish from the Chest Monster class | `BP_GhostFish`, `ABP_GhostFish` |
+| 2026-11-09 | Monsters persist in the SpacetimeDB **`monster`** table; one client claims and drives each row | Spawn points survive without placed actors. The first logged-in client with a player in range owns the logic and reports at 100 Hz only when transform or attack state changes. Other clients snap. Disconnect releases the claim | Every client simulates, or one client drives every monster | `spacetimedb/src/lib.cpp`, `UTheGoldenAgeMonsterSync`, `ATheGoldenAgeMonster`, `Lvl_Main` |
+| 2026-11-09 | Monster transforms report at **20 Hz** with a movement threshold; other clients interpolate yaw | A turning monster was sending `update_monster` on every 10 ms check. Attack flags stay immediate. Position and yaw wait 0.05 s and a 10 cm or 5 degree change. Remote clients turn toward the latest yaw at `FacingTurnRate` instead of snapping | Keep monster reports on the player 100 Hz interval | `ATheGoldenAgeMonster`, Chest Monster, Ghost Fish |
+| 2026-11-09 | Agents **run `spacetime` CLI commands** when a change needs them | Publish, generate, and call stay in the same session as the code change. Unreal Live Coding stays manual | Tell the user the command and wait | `spacetimedb/`, agent workflow |
 | 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
 
@@ -597,6 +603,42 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — `wasm-opt` is on the user PATH
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Binaryen 133 is installed at `C:\Users\ws65620703\binaryen\binaryen-version_133\bin`, and that `bin` directory is on the Windows user `PATH`. `wasm-opt --version` reports `133`. |
+| **Files / systems** | Local Binaryen install. No game or module source change. |
+| **Reason** | `spacetime publish` looks for `wasm-opt` and previously uploaded the module unoptimised because the tool was missing. |
+| **Follow-up** | Terminals and Cursor that were already open keep their old `PATH` until they are restarted. The module already on `maincloud` stays unoptimised until the next publish. |
+
+### 2026-11-09 — `loop_attack` stays false when no player is nearby
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | Chest Monster and Ghost Fish set `bLoopAttack` true only while a player is inside `DetectionRange`. Idle and the finishing attack cycle keep it false, and that value is reported with `update_monster`. `release_monster`, disconnect cleanup, and a new seed also store `loop_attack` false. |
+| **Files / systems** | `ATheGoldenAgeChestMonster`, `ATheGoldenAgeGhostFish`, `ATheGoldenAgeMonster` idle default, `spacetimedb/src/lib.cpp`. |
+| **Reason** | After the last player left, the client set `bLoopAttack` true again for idle, and `release_monster` wrote the same true value into the `monster` table. |
+| **Follow-up** | Published to `maincloud` database `c2009abca22226b9b908c5d99782eb9da9ffa21e9de7158c7f17a6c84c3d5b13` on 2026-11-09. No schema change, so the client bindings stay valid. `wasm-opt` was not installed; the module uploaded unoptimised. Rows already sitting idle keep their old `loop_attack` true until the next claim and release. Live Coding, then stop PIE if it is running. Walk into a monster and back out: while you are in range `loop_attack` is true; after the last swing and after release it is false. |
+
+### 2026-11-09 — Monster updates are no longer sent at 100 Hz
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | The owner still sends `update_monster` immediately when `bIsAttacking` or `bLoopAttack` changes. Position and rotation wait at least 0.05 s, and are sent only after the monster moves 10 cm or yaws 5 degrees. A monster that has finished turning sends nothing. Other clients teleport to the reported position and turn toward the latest yaw at `FacingTurnRate` (480 deg/s on the Chest Monster and Ghost Fish). The player transform stays at 100 Hz. No schema change. |
+| **Files / systems** | `ATheGoldenAgeMonster::ReportOwnedState` and `TurnTowardServerYaw`; `GetFacingTurnRate` on the Chest Monster and Ghost Fish. |
+| **Reason** | A turning monster was adding one reducer call per owned monster at 100 Hz on top of the player's own updates. |
+| **Follow-up** | Live Coding, then stop PIE if it is running. With two clients, walk around a monster on client A. Client B should see a continuous turn, a little behind A, and the attack should still start with the swing. An idle monster should not keep calling `update_monster`. |
+
+### 2026-11-09 — Server-persistent monsters
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | The public `monster` table stores kind, spawn transform, live transform, owner, and attack flags. `UTheGoldenAgeMonsterSync` spawns `BP_ChestMonster` (`kind` 0) at (-30, 420, 70) and `BP_GhostFish` (`kind` 1) at (-510, 440, 70) from those rows. The first logged-in client that sees a player inside `DetectionRange` calls `claim_monster` and then runs the local face-and-attack logic. It calls `update_monster` at 100 Hz (`SyncIntervalSeconds` 0.01) only when position, rotation, or the attack flags change. It calls `release_monster` after the player leaves and the current attack cycle finishes. Other clients snap to the row and play the same anim flags. Disconnect, or a connection switching usernames, clears that player's claims and sets the monster idle. The two hand-placed actors were removed from `Lvl_Main`. |
+| **Files / systems** | `spacetimedb/src/lib.cpp`; `UTheGoldenAgeMonsterSync`; `UTheGoldenAgePlayerSync` (table and reducer callbacks); `ATheGoldenAgeMonster`, `ATheGoldenAgeChestMonster`, `ATheGoldenAgeGhostFish`; `Lvl_Main`. |
+| **Reason** | Monsters should stay on the server the same way players do, while the behaviour still runs on a client. |
+| **Follow-up** | Publish, seed, and regenerate bindings before Live Coding. From the repo: `spacetime publish c2009abca22226b9b908c5d99782eb9da9ffa21e9de7158c7f17a6c84c3d5b13 --server maincloud --module-path "K:/UE_repos/TheGoldenAge/spacetimedb" --yes=remote,migrate,break-clients`, then `spacetime call c2009abca22226b9b908c5d99782eb9da9ffa21e9de7158c7f17a6c84c3d5b13 seed_monsters --server maincloud --yes`, then `spacetime generate --lang unrealcpp --uproject-dir "K:/UE_repos/TheGoldenAge" --module-path "K:/UE_repos/TheGoldenAge/spacetimedb" --unreal-module-name TheGoldenAge --yes`. `init` will not seed the existing database. The owner is trusted. Monsters do not move yet. `BP_GhostFish` still needs reparenting to `ATheGoldenAgeGhostFish` after Live Coding. `spacetime generate` also wrote a second `TheGoldenAge.cpp` and `TheGoldenAge.h` at `Source/TheGoldenAge/`. Those copies were removed. The module entry stays `Private/TheGoldenAge.cpp` and `Public/TheGoldenAge.h`. If generate writes the root copies again, delete them before compiling. Unreal Build Tool rejects two inputs with the same filename. |
 
 ### 2026-11-09 — Ghost Fish has its own monster class
 

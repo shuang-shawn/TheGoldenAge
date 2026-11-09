@@ -32,7 +32,6 @@ struct THEGOLDENAGE_API FPlayerType
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
     FSpacetimeDBTimestamp UpdatedAt;
 
-    /** 0 = Hero, 1 = Explorer. Set once when the player row is created. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpacetimeDB")
     uint8 Role = 0;
 

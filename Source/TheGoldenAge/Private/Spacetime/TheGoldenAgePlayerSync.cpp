@@ -1,6 +1,7 @@
 #include "Spacetime/TheGoldenAgePlayerSync.h"
 
 #include "Character/TheGoldenAgePlayerCharacter.h"
+#include "Spacetime/TheGoldenAgeMonsterSync.h"
 #include "Connection/Credentials.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
@@ -364,10 +365,24 @@ void UTheGoldenAgePlayerSync::DestroyAllPlayerPawns()
 
 void UTheGoldenAgePlayerSync::Disconnect()
 {
+	UTheGoldenAgeMonsterSync* Monsters = GetWorld() ? GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>() : nullptr;
 	if (Conn)
 	{
 		Conn->Reducers->OnLogin.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginReducer);
+		Conn->Reducers->OnClaimMonster.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleClaimMonster);
+		Conn->Reducers->OnReleaseMonster.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleReleaseMonster);
 		Conn->OnUnhandledReducerError.RemoveDynamic(this, &UTheGoldenAgePlayerSync::HandleReducerError);
+		if (Monsters && Conn->Db && Conn->Db->Monster)
+		{
+			Conn->Db->Monster->OnInsert.RemoveDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterInsert);
+			Conn->Db->Monster->OnUpdate.RemoveDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterUpdate);
+			Conn->Db->Monster->OnDelete.RemoveDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterDelete);
+		}
+	}
+
+	if (Monsters)
+	{
+		Monsters->Reset();
 	}
 
 	DestroyAllPlayerPawns();
@@ -413,7 +428,20 @@ void UTheGoldenAgePlayerSync::HandleConnect(UDbConnection* InConn, FSpacetimeDBI
 	InConn->Db->Player->OnUpdate.AddDynamic(this, &UTheGoldenAgePlayerSync::HandlePlayerUpdate);
 
 	InConn->Reducers->OnLogin.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleLoginReducer);
+	InConn->Reducers->OnClaimMonster.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleClaimMonster);
+	InConn->Reducers->OnReleaseMonster.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleReleaseMonster);
 	InConn->OnUnhandledReducerError.AddDynamic(this, &UTheGoldenAgePlayerSync::HandleReducerError);
+
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->SetConnection(InConn);
+		if (InConn->Db->Monster)
+		{
+			InConn->Db->Monster->OnInsert.AddDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterInsert);
+			InConn->Db->Monster->OnUpdate.AddDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterUpdate);
+			InConn->Db->Monster->OnDelete.AddDynamic(Monsters, &UTheGoldenAgeMonsterSync::HandleMonsterDelete);
+		}
+	}
 
 	FOnSubscriptionApplied AppliedDelegate;
 	BIND_DELEGATE_SAFE(AppliedDelegate, this, UTheGoldenAgePlayerSync, HandleSubscriptionApplied);
@@ -454,6 +482,12 @@ void UTheGoldenAgePlayerSync::HandleDisconnect(UDbConnection* InConn, const FStr
 
 	ReleaseLocalPossession();
 
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->NotifyDisconnected();
+		Monsters->SetConnection(nullptr);
+	}
+
 	if (bPlayChosen)
 	{
 		ShowLoginWidget();
@@ -472,6 +506,10 @@ void UTheGoldenAgePlayerSync::HandleSubscriptionApplied(FSubscriptionEventContex
 		Context.Db && Context.Db->Player ? Context.Db->Player->Count() : 0);
 
 	SyncAllPlayersFromCache();
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->SyncFromConnection();
+	}
 
 	if (LoginWidget)
 	{
@@ -662,7 +700,38 @@ void UTheGoldenAgePlayerSync::HandleLoginReducer(
 		SendLocalTransform();
 	}
 
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->SyncFromConnection();
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("Logged in as %s"), *LocalUsername);
+}
+
+void UTheGoldenAgePlayerSync::HandleClaimMonster(const FReducerEventContext& Context, uint64 Id)
+{
+	if (!Conn || Context.Event.CallerConnectionId != Conn->GetConnectionId() || Context.Event.Status.IsCommitted())
+	{
+		return;
+	}
+
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->NotifyClaimRejected(Id);
+	}
+}
+
+void UTheGoldenAgePlayerSync::HandleReleaseMonster(const FReducerEventContext& Context, uint64 Id)
+{
+	if (!Conn || Context.Event.CallerConnectionId != Conn->GetConnectionId() || Context.Event.Status.IsCommitted())
+	{
+		return;
+	}
+
+	if (UTheGoldenAgeMonsterSync* Monsters = GetWorld()->GetSubsystem<UTheGoldenAgeMonsterSync>())
+	{
+		Monsters->NotifyReleaseRejected(Id);
+	}
 }
 
 void UTheGoldenAgePlayerSync::HandleReducerError(const FReducerEventContext& Context, const FString& Error)

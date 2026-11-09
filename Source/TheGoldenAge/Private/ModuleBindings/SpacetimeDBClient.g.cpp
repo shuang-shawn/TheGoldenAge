@@ -4,6 +4,7 @@
 #include "ModuleBindings/SpacetimeDBClient.g.h"
 #include "DBCache/WithBsatn.h"
 #include "BSATN/UEBSATNHelpers.h"
+#include "ModuleBindings/Tables/MonsterTable.g.h"
 #include "ModuleBindings/Tables/PlayerTable.g.h"
 
 UDbConnection::UDbConnection(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
@@ -17,6 +18,7 @@ UDbConnection::UDbConnection(const FObjectInitializer& ObjectInitializer) : Supe
 	Procedures = ObjectInitializer.CreateDefaultSubobject<URemoteProcedures>(this, TEXT("RemoteProcedures"));
 	Procedures->Conn = this;
 
+	RegisterTable<FMonsterType, UMonsterTable, FEventContext>(TEXT("monster"), Db->Monster);
 	RegisterTable<FPlayerType, UPlayerTable, FEventContext>(TEXT("player"), Db->Player);
 }
 
@@ -52,15 +54,63 @@ void URemoteTables::Initialize()
 {
 
 	/** Creating tables */
+	Monster = NewObject<UMonsterTable>(this);
 	Player = NewObject<UPlayerTable>(this);
 	/**/
 
 	/** Initialization */
+	Monster->PostInitialize();
 	Player->PostInitialize();
 	/**/
 }
 
-void URemoteReducers::Login(const FString& Name, const FString& Password, uint8 Role)
+void URemoteReducers::ClaimMonster(const uint64 Id)
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FClaimMonsterArgs ReducerArgs(Id);
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("claim_monster"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::ClaimMonster(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeClaimMonster(const FReducerEventContext& Context, const UClaimMonsterReducer* Args)
+{
+    if (!OnClaimMonster.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for ClaimMonster"));
+        }
+        return false;
+    }
+
+    OnClaimMonster.Broadcast(Context, Args->Id);
+    return true;
+}
+
+bool URemoteReducers::InvokeClaimMonsterWithArgs(const FReducerEventContext& Context, const FClaimMonsterArgs& Args)
+{
+    if (!OnClaimMonster.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for ClaimMonster"));
+        }
+        return false;
+    }
+
+    OnClaimMonster.Broadcast(Context, Args.Id);
+    return true;
+}
+
+void URemoteReducers::Login(const FString& Name, const FString& Password, const uint8 Role)
 {
     if (!Conn)
     {
@@ -103,6 +153,144 @@ bool URemoteReducers::InvokeLoginWithArgs(const FReducerEventContext& Context, c
     }
 
     OnLogin.Broadcast(Context, Args.Name, Args.Password, Args.Role);
+    return true;
+}
+
+void URemoteReducers::ReleaseMonster(const uint64 Id)
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FReleaseMonsterArgs ReducerArgs(Id);
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("release_monster"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::ReleaseMonster(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeReleaseMonster(const FReducerEventContext& Context, const UReleaseMonsterReducer* Args)
+{
+    if (!OnReleaseMonster.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for ReleaseMonster"));
+        }
+        return false;
+    }
+
+    OnReleaseMonster.Broadcast(Context, Args->Id);
+    return true;
+}
+
+bool URemoteReducers::InvokeReleaseMonsterWithArgs(const FReducerEventContext& Context, const FReleaseMonsterArgs& Args)
+{
+    if (!OnReleaseMonster.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for ReleaseMonster"));
+        }
+        return false;
+    }
+
+    OnReleaseMonster.Broadcast(Context, Args.Id);
+    return true;
+}
+
+void URemoteReducers::SeedMonsters()
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FSeedMonstersArgs ReducerArgs;
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("seed_monsters"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::SeedMonsters(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeSeedMonsters(const FReducerEventContext& Context, const USeedMonstersReducer* Args)
+{
+    if (!OnSeedMonsters.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for SeedMonsters"));
+        }
+        return false;
+    }
+
+    OnSeedMonsters.Broadcast(Context);
+    return true;
+}
+
+bool URemoteReducers::InvokeSeedMonstersWithArgs(const FReducerEventContext& Context, const FSeedMonstersArgs& Args)
+{
+    if (!OnSeedMonsters.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for SeedMonsters"));
+        }
+        return false;
+    }
+
+    OnSeedMonsters.Broadcast(Context);
+    return true;
+}
+
+void URemoteReducers::UpdateMonster(const uint64 Id, const FDbVector3Type& Position, const FDbRotatorType& Rotation, const bool IsAttacking, const bool LoopAttack)
+{
+    if (!Conn)
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpacetimeDB connection is null"));
+        return;
+    }
+
+	FUpdateMonsterArgs ReducerArgs(Id, Position, Rotation, IsAttacking, LoopAttack);
+	const uint32 RequestId = Conn->CallReducerTyped(TEXT("update_monster"), ReducerArgs);
+	if (RequestId != 0) { Conn->RegisterPendingTypedReducer(RequestId, FReducer::UpdateMonster(ReducerArgs)); }
+}
+
+bool URemoteReducers::InvokeUpdateMonster(const FReducerEventContext& Context, const UUpdateMonsterReducer* Args)
+{
+    if (!OnUpdateMonster.IsBound())
+    {
+        // Handle unhandled reducer error
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            // TODO: Check Context.Event.Status for Failed/OutOfEnergy cases
+            // For now, just broadcast any error
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for UpdateMonster"));
+        }
+        return false;
+    }
+
+    OnUpdateMonster.Broadcast(Context, Args->Id, Args->Position, Args->Rotation, Args->IsAttacking, Args->LoopAttack);
+    return true;
+}
+
+bool URemoteReducers::InvokeUpdateMonsterWithArgs(const FReducerEventContext& Context, const FUpdateMonsterArgs& Args)
+{
+    if (!OnUpdateMonster.IsBound())
+    {
+        if (InternalOnUnhandledReducerError.IsBound())
+        {
+            InternalOnUnhandledReducerError.Broadcast(Context, TEXT("No handler registered for UpdateMonster"));
+        }
+        return false;
+    }
+
+    OnUpdateMonster.Broadcast(Context, Args.Id, Args.Position, Args.Rotation, Args.IsAttacking, Args.LoopAttack);
     return true;
 }
 
@@ -239,10 +427,34 @@ void UDbConnection::ReducerEvent(const FReducerEvent& Event)
     // Dispatch by typed reducer metadata
     const FString& ReducerName = ReducerEvent.Reducer.ReducerName;
 
+    if (ReducerName == TEXT("claim_monster"))
+    {
+        FClaimMonsterArgs Args = ReducerEvent.Reducer.GetAsClaimMonster();
+        Reducers->InvokeClaimMonsterWithArgs(Context, Args);
+        return;
+    }
     if (ReducerName == TEXT("login"))
     {
         FLoginArgs Args = ReducerEvent.Reducer.GetAsLogin();
         Reducers->InvokeLoginWithArgs(Context, Args);
+        return;
+    }
+    if (ReducerName == TEXT("release_monster"))
+    {
+        FReleaseMonsterArgs Args = ReducerEvent.Reducer.GetAsReleaseMonster();
+        Reducers->InvokeReleaseMonsterWithArgs(Context, Args);
+        return;
+    }
+    if (ReducerName == TEXT("seed_monsters"))
+    {
+        FSeedMonstersArgs Args = ReducerEvent.Reducer.GetAsSeedMonsters();
+        Reducers->InvokeSeedMonstersWithArgs(Context, Args);
+        return;
+    }
+    if (ReducerName == TEXT("update_monster"))
+    {
+        FUpdateMonsterArgs Args = ReducerEvent.Reducer.GetAsUpdateMonster();
+        Reducers->InvokeUpdateMonsterWithArgs(Context, Args);
         return;
     }
     if (ReducerName == TEXT("update_player_transform"))
@@ -351,6 +563,14 @@ USubscriptionBuilder* USubscriptionBuilder::AddBlueprintQuery(const FBlueprintQu
 {
 	PendingSqlQueries.Add(Query.Sql);
 	return this;
+}
+
+USubscriptionBuilder* USubscriptionBuilder::AddMonsterQuery(const FMonsterQuery& Query)
+{
+	FBlueprintQuery GenericQuery;
+	GenericQuery.Sql = Query.Sql;
+	GenericQuery.ResultSourceName = Query.ResultSourceName;
+	return AddBlueprintQuery(GenericQuery);
 }
 
 USubscriptionBuilder* USubscriptionBuilder::AddPlayerQuery(const FPlayerQuery& Query)
