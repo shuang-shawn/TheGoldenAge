@@ -228,9 +228,9 @@ TheGoldenAge.uproject
 Content/_Main/
     ├── Lvl_Main
     ├── Input/ (IA_Move, IMC_Default)
-    └── Blueprint/BP_ChestMonster (child of ATheGoldenAgeChestMonster; anim: ABP_ChestMonster)
+    └── Blueprint/BP_ChestMonster, BP_Swarm08 (both children of ATheGoldenAgeChestMonster)
 Content/MonsterForSurvivalGame/
-    └── Mesh/Polyart + Animation/Polyart/ChestMonster (source assets for the BP)
+    └── Mesh/Polyart + Animation/Polyart (ChestMonster and Swarm08 source assets)
 Content/RPGHeroSquad/
     ├── CharacterBP/BP_TinyHeroPolyart (playable; reparented from SkeletalMeshActor)
     └── Animation/TinyHero/… (battle in-place locomotion)
@@ -248,7 +248,7 @@ Config/
 | Input | Enhanced Input actions/mappings; cursor targeting | **Partial** — `IA_Move` / `IMC_Default`; **no** cursor targeting. |
 | Combat / abilities | MOBA-style ground targeting, reusable targeting API | **Planned** — architecture only. |
 | UI | Menus/HUD | **Not implemented** |
-| AI / NPCs | Shared player detection; Chest Monster attack | **Partial** — `ATheGoldenAgeMonster` reports player-tagged actors inside `DetectionRange`. `ATheGoldenAgeChestMonster` faces the closest and sets `bIsAttacking`. Leaving range finishes the current Attack 01 cycle, then idle. `ABP_ChestMonster` plays the clips. No pathfinding, damage, or other monster types. |
+| AI / NPCs | Shared player detection; Chest Monster and Swarm08 attack | **Partial** — `ATheGoldenAgeMonster` reports player-tagged actors inside `DetectionRange`. `ATheGoldenAgeChestMonster` faces the closest and sets `bIsAttacking`. Leaving range finishes the current attack cycle, then idle. `ABP_ChestMonster` and `ABP_Swarm08` play the clips. No pathfinding or damage. |
 | Audio gameplay | — | **Not implemented** |
 | Save/load | — | **Not implemented** |
 | Multiplayer / replication | — | **Not configured** (design asks to consider net compatibility in new systems). |
@@ -264,7 +264,7 @@ Config/
 | `ATheGoldenAgePlayerController` | Adds `IMC_Default` (mappings authored on the asset); sets view target |
 | `ATheGoldenAgePlayerCharacter` | Camera-relative movement, movement-facing, single-node battle locomotion. Actor tag `Player` (`PlayerActorTag`) on every instance. |
 | `ATheGoldenAgeMonster` | Abstract. `DetectionRange` (default 500, horizontal) and `HandleNearbyPlayers` each tick. Response is up to the child. |
-| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until Attack 01 reaches its last frame, then idle. `ABP_ChestMonster` chooses the clip. |
+| `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Faces the closest nearby player and sets `bIsAttacking`. After the player leaves, `bLoopAttack` is false until the attack sequence whose name contains `Attack` reaches its last frame, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. Each Anim Blueprint chooses the clips. |
 
 **Blueprints / content:**
 
@@ -272,6 +272,8 @@ Config/
 - **`BP_Explorer`** — `Content/_Main/Blueprint/`. Same parent and gameplay logic as `BP_Hero`. Appearance is `SK_DogPolyart`, Animal Hero idle, and the Animal Hero in-place walk (used for every move direction; the pack has no back/left/right in-place clips). Sword and shield attach to `WeaponSocket` and `ShieldSocket` from the construction script. Spawned for player role Explorer (`role` 1).
 - **`BP_ChestMonster`** — `Content/_Main/Blueprint/` (redirector from `BP_ChestMonsterPolyart`). Parent `ATheGoldenAgeChestMonster`. Polyart skeletal mesh. Mesh uses `ABP_ChestMonster` (`AnimationBlueprint` mode). `DetectionRange` is on `ATheGoldenAgeMonster` (default 500 cm, horizontal, actor origin to actor origin). `FacingTurnRate` default 480 deg/s stays on the Chest Monster. One instance is placed in `Lvl_Main`; its mesh Anim Class is `ABP_ChestMonster`.
 - **`ABP_ChestMonster`** — `Content/_Main/Blueprint/`. Parent `UAnimInstance`, skeleton `ChestMonster_Skeleton` (polyart). AnimGraph: `bIsAttacking` selects Attack 01 (true) or looping idle battle (false), blend time 0. Attack 01's Loop Animation pin is driven by `bLoopAttack` (default true). The character copies both bools onto the Anim Instance each tick. While a player is in range the attack loops. After the player leaves, `bLoopAttack` is false so the current cycle plays to its last frame, then `bIsAttacking` becomes false and idle resumes. Add later Chest Monster clips and states in this AnimGraph.
+- **`BP_Swarm08`** — `Content/_Main/Blueprint/`. Same parent, detection, facing, and capsule as `BP_ChestMonster`. Mesh is polyart `Swarm08_SK` with `ABP_Swarm08`. One instance is in `Lvl_Main` at (-30, 920, 70), 500 cm north of the Chest Monster.
+- **`ABP_Swarm08`** — `Content/_Main/Blueprint/`. Same graph as `ABP_ChestMonster` on polyart `Swarm08_SK_Skeleton`: `bIsAttacking` selects `Swarm08_Attack_Anim`, otherwise looping `Swarm08_Idle_Anim`. Attack Loop Animation is `bLoopAttack`. Only idle and attack are wired. The Anim Blueprint preview mesh is unset, so the animation editor viewport does not show the creature; the character Blueprint does.
 - **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IMC_Default`.
 - **`Lvl_Main`** — greybox play map.
 - **`Content/RPGHeroSquad/`** — hero assets (commit via LFS when ready).
@@ -318,7 +320,7 @@ Config/
 | Path | Notes |
 |------|--------|
 | `Content/_Main/Lvl_Main.umap` | **Game default map** and **editor startup map** (only level in `_Main`) |
-| `Content/_Main/Blueprint/` | Gameplay Blueprints. `BP_ChestMonster` (polyart Chest Monster) and `ABP_ChestMonster` (idle battle / Attack 01). |
+| `Content/_Main/Blueprint/` | Gameplay Blueprints. `BP_ChestMonster` / `ABP_ChestMonster` and `BP_Swarm08` / `ABP_Swarm08` (idle and attack only). |
 | `Content/_Main/Input/` | `IA_Move`, `IMC_Default`, and other Enhanced Input assets. |
 | `Content/MonsterForSurvivalGame/` | Imported monster pack (Polyart and PBR meshes, skeletons, physics assets, animations). **Use LFS on commit.** |
 | `Content/RPGHeroSquad/` | Imported character/animation content (Fab-style tree). **Use LFS on commit.** Verify licenses/attribution before shipping. |
@@ -534,7 +536,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | GameMode / pawn / input / locomotion | See [Completed](#completed-verified) | Combat, targeting, additional anims |
 | Enhanced Input stack | `IA_Move`, `IMC_Default` (WASD saved on the asset), C++ bindings | Targeting actions |
 | Third-party hero content | Wired to `BP_TinyHeroPolyart` | LFS commit; tune capsule vs mesh offset if needed |
-| Monsters | `ATheGoldenAgeMonster` detection; Chest Monster attack via `ABP_ChestMonster` | No damage. One instance is in `Lvl_Main`. |
+| Monsters | `ATheGoldenAgeMonster` detection; Chest Monster and Swarm08 attack | No damage. One Chest Monster and one Swarm08 are in `Lvl_Main`. Swarm08 has idle and attack only. |
 
 ### Known issues / technical debt
 
@@ -580,6 +582,7 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 | 2026-11-08 | **C++ core + Blueprint children** for customized gameplay | Performance and reuse in C++; designer iteration in BP | Blueprint-only or duplicated logic in both layers | All future gameplay classes |
 | 2026-11-08 | Chest Monster clips live in **`ABP_ChestMonster`** | Gameplay sets `bIsAttacking`; the AnimGraph chooses and blends clips so later attacks are added there | Keep swapping `UAnimSequence` on a single-node mesh | Chest Monster, animation |
 | 2026-11-09 | Finish the current Attack 01 cycle by clearing **`bLoopAttack`** | The attack sequence player stops wrapping and holds its last frame; `bIsAttacking` then selects idle. Re-entering range sets `bLoopAttack` true again | State-machine transition, or cutting to idle on the frame the player leaves | Chest Monster, `ABP_ChestMonster` |
+| 2026-11-09 | Swarm08 reuses **`ATheGoldenAgeChestMonster`** | Idle/attack detection is the same; only the mesh and Anim Blueprint differ. The C++ class already finds a sequence whose name contains `Attack` | A new Swarm C++ class that copies the same tick logic | `BP_Swarm08`, `ABP_Swarm08` |
 | 2026-11-08 | Track UE/media binaries with **Git LFS** via `.gitattributes` | Prevent repo bloat; consistent clones for team/agents | Vendor Perforce / plain Git blobs | Git, `Content/`, CI |
 | Recent (dev env) | Enable **MCP / Editor toolset** plugins in `.uproject` | AI-assisted editor workflows | Manual editor-only workflow | Editor, not packaged game |
 
@@ -590,6 +593,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-09 — Swarm08 idle and attack
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `BP_Swarm08` uses the Chest Monster parent, detection, facing, and capsule. The mesh is polyart `Swarm08_SK`. `ABP_Swarm08` plays looping `Swarm08_Idle_Anim` until a player is inside `DetectionRange` (250), then `Swarm08_Attack_Anim`. Leaving range finishes the current attack cycle before idle, same as the Chest Monster. One instance is in `Lvl_Main` at (-30, 920, 70). |
+| **Files / systems** | `BP_Swarm08`; `ABP_Swarm08`; polyart `Swarm08_Idle_Anim` and `Swarm08_Attack_Anim` (`bLoop`); `Lvl_Main` actor `BP_Swarm08_C_0`. |
+| **Reason** | Swarm08 should behave like the Chest Monster, with only idle and attack for now. |
+| **Follow-up** | Live Coding is not required for these assets. Stop PIE if it is running, then play `Lvl_Main`. Walk to the Swarm08 north of the Chest Monster. The Anim Blueprint preview mesh is unset. |
 
 ### 2026-11-09 — Role choice was sending an empty username
 
