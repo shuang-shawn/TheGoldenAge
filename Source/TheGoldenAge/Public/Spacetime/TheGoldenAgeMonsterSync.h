@@ -21,6 +21,7 @@ class THEGOLDENAGE_API UTheGoldenAgeMonsterSync : public UWorldSubsystem
 	GENERATED_BODY()
 
 public:
+	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void Deinitialize() override;
 
 	void SetConnection(UDbConnection* InConn);

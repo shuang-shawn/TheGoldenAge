@@ -2,7 +2,7 @@
 
 **TheGoldenAge** — shared knowledge base for human developers and AI agents working on this Unreal Engine project.
 
-**Last verified against codebase:** 2026-11-09 (`monster_tick` stops when nobody is online; agents do not compile; the user runs Live Coding manually after each task)  
+**Last verified against codebase:** 2026-11-16 (`Lvl_Sandbox` uses World Settings tag `NoSpacetime` to skip Spacetime sync subsystems; agents do not compile; the user runs Live Coding manually after each task)  
 **Document maintainer:** Any agent or developer who makes meaningful project changes (see [Instructions for AI Agents](#instructions-for-ai-agents)).
 
 ---
@@ -229,6 +229,7 @@ TheGoldenAge.uproject
                     └── BP_Explorer (role 1)
 Content/_Main/
     ├── Lvl_Main
+    ├── Lvl_Sandbox (World Settings tag `NoSpacetime`; no SpacetimeDB on Play)
     ├── Input/ (IA_Move, IA_Attack, IMC_Default)
     └── Blueprint/BP_ChestMonster (Trap), BP_GhostFish (Ghost), BP_Swarm08
 Content/MonsterForSurvivalGame/
@@ -268,7 +269,8 @@ Config/
 | `ATheGoldenAgeMonster` | Abstract. `ApplyLocalViewerVisibility` hides `Monster`-tagged actors the local role cannot see: `Hero` sees `Ghost`, `Explorer` sees `Trap`. A server id disables movement and stores samples from `ApplyServerState`. `Tick` interpolates position and yaw toward the sample that is about 100 ms old. One sample, or a gap of 500 cm or more, snaps. `MonsterId` 0 has no samples and does not detect players. Owns `UTheGoldenAgeHealthComponent` and the same screen-space health bar as players. The bar and `bIsDead` follow `monster.health` from the server. At 0, attack presentation stops. One second later the server restores 100 health at `spawn_position` / `spawn_rotation`. `TryMonsterAttackHit` runs once per attack cycle at `MonsterAttackHitTimeNormalized` and calls `monster_attack_player` when the **locally controlled** player overlaps the forward sphere (`MonsterAttackReach`, `MonsterAttackRadius`; tune on BP). The server applies that row's `attack_damage` (default 15). |
 | `ATheGoldenAgeChestMonster` | Child of `ATheGoldenAgeMonster`. Copies `bIsAttacking` and `bLoopAttack` onto `ABP_ChestMonster`. `loop_attack` true starts the looping attack. `loop_attack` false plays out the current sequence whose name contains `Attack`, then idle. Used by `BP_ChestMonster` and `BP_Swarm08`. The server, not this class, turns the Chest Monster. |
 | `ATheGoldenAgeGhostFish` | Child of `ATheGoldenAgeMonster`, sibling of the Chest Monster. The only Ghost-tagged monster so far. Same attack-cycle presentation as the Chest Monster, copied onto `ABP_GhostFish`. It does not pathfind. The server moves and turns it. |
-| `UTheGoldenAgeMonsterSync` | World subsystem. Spawns `ATheGoldenAgeGameMode::ChestMonsterClass` (`kind` 0) or `GhostFishClass` (`kind` 1) from the `monster` table and applies each row, including `health`. It does not load those classes by path. `RequestMonsterDamage` calls `damage_monster`. `RequestMonsterAttackPlayer` calls `monster_attack_player`. `UTheGoldenAgePlayerSync` owns the connection and forwards table events. |
+| `TheGoldenAgeSpacetimeWorld` | Namespace with `NoSpacetimeLevelTag` (`NoSpacetime`) and `ShouldCreateSpacetimeSubsystems`. When World Settings on the loaded map has that actor tag, `UTheGoldenAgePlayerSync` and `UTheGoldenAgeMonsterSync` are not created in PIE. |
+| `UTheGoldenAgeMonsterSync` | World subsystem. Spawns `ATheGoldenAgeGameMode::ChestMonsterClass` (`kind` 0) or `GhostFishClass` (`kind` 1) from the `monster` table and applies each row, including `health`. It does not load those classes by path. `RequestMonsterDamage` calls `damage_monster`. `RequestMonsterAttackPlayer` calls `monster_attack_player`. `UTheGoldenAgePlayerSync` owns the connection and forwards table events. Not created on maps tagged `NoSpacetime`. |
 | `UTheGoldenAgeHealthComponent` | Renders server-owned health on players and monsters. `MaxHealth` default 100 is the display cap. `ApplyServerHealth` copies the row and skips the BeginPlay full-health default when server data arrived first. Health at or below 0 sets `bIsDead` once and broadcasts `OnDied`. The component does not write the row. |
 | `UTheGoldenAgeHealthBarWidget` | Horizontal bar built in C++. Green above half, yellow above 25%, red at or below 25%. Bound to the owner's health component; after the C++ layout builds it reapplies the current component health so login/spawn does not leave a stale 100% fill. |
 
@@ -286,6 +288,7 @@ Config/
 - **`ABP_Swarm08`** — `Content/_Main/Blueprint/`. Same graph as `ABP_ChestMonster` on polyart `Swarm08_SK_Skeleton`: `bIsAttacking` selects `Swarm08_Attack_Anim`, otherwise looping `Swarm08_Idle_Anim`. Attack Loop Animation is `bLoopAttack`. Only idle and attack are wired. The Anim Blueprint preview mesh is unset, so the animation editor viewport does not show the creature; the character Blueprint does.
 - **`Content/_Main/Input/`** — `IA_Move` (Axis2D), `IA_Attack` (Boolean), `IA_Look`, `IA_CameraRotate`, `IMC_Default` (WASD, LMB attack, RMB camera, Mouse2D look).
 - **`Lvl_Main`** — greybox play map.
+- **`Lvl_Sandbox`** — local experiment map. World Settings actor tag **`NoSpacetime`** disables Spacetime sync subsystems on Play. Override **Game Mode** on this level (e.g. `GameModeBase` + a default pawn) for offline tests; global default remains `TheGoldenAgeGameMode`.
 - **`Content/RPGHeroSquad/`** — hero assets (commit via LFS when ready).
 - **Must use LFS** when adding: all `.uasset` / `.umap` per `.gitattributes`.
 
@@ -389,6 +392,8 @@ Indicates origin from the **TP_Blank** template, not necessarily the full Third 
 | `GameDefaultMap` | `/Game/_Main/Lvl_Main` |
 | `EditorStartupMap` | `/Game/_Main/Lvl_Main` |
 | `GlobalDefaultGameMode` | `/Script/TheGoldenAge.TheGoldenAgeGameMode` |
+
+**Sandbox / offline maps:** Add actor tag **`NoSpacetime`** on **World Settings** (Details → Tags). `UTheGoldenAgePlayerSync` and `UTheGoldenAgeMonsterSync` skip those maps in PIE. `Lvl_Sandbox` is tagged in the asset. Use **Play → current level** (not project default map) when testing there.
 
 **Lvl_Main (verified at high level):** Template lighting stack, `PlayerStart`, floor mesh, sky — suitable as a greybox empty stage. `NavMeshBoundsVolume_0` covers the floor, from about -4200 to 4200 cm in X and Y and from -800 to 1200 cm in Z. `RecastNavMesh-Default` is in the level.
 
@@ -627,6 +632,15 @@ See [Gameplay design requirements](#gameplay-design-requirements). Next steps (f
 ## H. Development Change Log
 
 Entries are **newest first**. Preserve all history.
+
+### 2026-11-16 — Level tag gate for sandbox (no SpacetimeDB in PIE)
+
+| Field | Detail |
+|-------|--------|
+| **Summary** | `TheGoldenAgeSpacetimeWorld::ShouldCreateSpacetimeSubsystems` returns false when World Settings has actor tag `NoSpacetime`. `UTheGoldenAgePlayerSync` and `UTheGoldenAgeMonsterSync` use it in `ShouldCreateSubsystem`. `Lvl_Sandbox` was tagged in the level asset. |
+| **Files / systems** | `TheGoldenAgeSpacetimeWorld.h/.cpp`, `TheGoldenAgePlayerSync`, `TheGoldenAgeMonsterSync`, `Content/_Main/Lvl_Sandbox.umap`. |
+| **Reason** | Experiment maps should Play without login, cloud connect, or multiplayer sync. |
+| **Follow-up** | Live Coding. Open `Lvl_Sandbox`, Play from current level: no play menu or Spacetime connect. Set a sandbox Game Mode override on that level if you need a default pawn without `TheGoldenAgeGameMode` flow. |
 
 ### 2026-11-09 — Cook pawn and monster classes as game mode references
 

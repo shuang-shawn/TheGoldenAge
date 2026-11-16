@@ -1,5 +1,6 @@
 #include "Spacetime/TheGoldenAgePlayerSync.h"
 
+#include "Spacetime/TheGoldenAgeSpacetimeWorld.h"
 #include "Character/TheGoldenAgePlayerCharacter.h"
 #include "Game/TheGoldenAgeGameMode.h"
 #include "Spacetime/TheGoldenAgeMonsterSync.h"
@@ -169,7 +170,7 @@ bool UTheGoldenAgePlayerSync::IsValidUsername(const FString& Username, FString& 
 bool UTheGoldenAgePlayerSync::ShouldCreateSubsystem(UObject* Outer) const
 {
 	const UWorld* World = Cast<UWorld>(Outer);
-	return World && World->IsGameWorld();
+	return TheGoldenAgeSpacetimeWorld::ShouldCreateSpacetimeSubsystems(World);
 }
 
 void UTheGoldenAgePlayerSync::OnWorldBeginPlay(UWorld& InWorld)

@@ -2,6 +2,7 @@
 
 #include "Spacetime/TheGoldenAgeMonsterSync.h"
 
+#include "Spacetime/TheGoldenAgeSpacetimeWorld.h"
 #include "Character/TheGoldenAgeMonster.h"
 #include "Game/TheGoldenAgeGameMode.h"
 #include "ModuleBindings/SpacetimeDBClient.g.h"
@@ -10,6 +11,12 @@ namespace
 {
 constexpr uint8 ChestMonsterKind = 0;
 constexpr uint8 GhostFishKind = 1;
+}
+
+bool UTheGoldenAgeMonsterSync::ShouldCreateSubsystem(UObject* Outer) const
+{
+	const UWorld* World = Cast<UWorld>(Outer);
+	return TheGoldenAgeSpacetimeWorld::ShouldCreateSpacetimeSubsystems(World);
 }
 
 void UTheGoldenAgeMonsterSync::Deinitialize()
